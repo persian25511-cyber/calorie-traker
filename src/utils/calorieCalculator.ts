@@ -11,6 +11,18 @@ export type ActivityLevel =
 
 export type WeightGoal = 'lose' | 'maintain' | 'gain'
 
+export const MIN_CALCULATOR_AGE = 18
+export const MAX_CALCULATOR_AGE = 95
+
+export const HEALTH_DISCLAIMERS = {
+  educationalNotice:
+    'کالری‌شمار روزمره صرفاً یک ابزار آموزشی و اطلاع‌رسانی برای برآورد تقریبی تغذیه است و جایگزین مشاوره، تشخیص یا تجویز پزشک و متخصص تغذیه نیست.',
+  specialGroupsWarning:
+    'هشدار مهم سلامتی: در صورت بارداری، شیردهی، سن زیر ۱۸ سال، سابقه یا علائم اختلالات خوردن (Eating Disorders)، دیابت یا بیماری‌های مزمن، از دنبال کردن رژیم‌های کاهش وزن خودسرانه خودداری کرده و حتماً با پزشک یا کارشناس تغذیه مشورت کنید.',
+  underageBlockMessage:
+    'محاسبه‌گر کالری و کاهش وزن فقط برای بزرگسالان ۱۸ سال به بالا طراحی شده است. برای کودکان و نوجوانان زیر ۱۸ سال تعیین نیاز تغذیه‌ای باید صرفاً زیر نظر پزشک یا متخصص تغذیه انجام شود.',
+} as const
+
 export interface TdeeInput {
   sex: BiologicalSex
   ageYears: number
@@ -25,6 +37,10 @@ export interface TdeeResult {
   tdee: number
   recommendedGoals: UserGoals
 }
+
+export type TdeeEvaluation =
+  | { ok: true; result: TdeeResult }
+  | { ok: false; error: string }
 
 const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   sedentary: 1.2,
@@ -49,11 +65,15 @@ export const WEIGHT_GOAL_LABELS: Record<WeightGoal, { title: string; deltaText: 
 }
 
 /**
- * Calculates BMR (Mifflin-St Jeor), TDEE, balanced macro targets,
- * and recommended daily water glasses (240ml per glass).
+ * Validates age (18+ strictly enforced) and computes BMR (Mifflin-St Jeor),
+ * TDEE, balanced macro targets, and daily water glasses.
  */
-export function calculateRecommendedGoals(input: TdeeInput): TdeeResult {
-  const age = Math.max(14, Math.min(95, input.ageYears))
+export function evaluateTdeeGoals(input: TdeeInput): TdeeEvaluation {
+  if (!Number.isFinite(input.ageYears) || input.ageYears < MIN_CALCULATOR_AGE) {
+    return { ok: false, error: HEALTH_DISCLAIMERS.underageBlockMessage }
+  }
+
+  const age = Math.min(MAX_CALCULATOR_AGE, Math.round(input.ageYears))
   const height = Math.max(120, Math.min(230, input.heightCm))
   const weight = Math.max(35, Math.min(220, input.weightKg))
 
@@ -70,34 +90,41 @@ export function calculateRecommendedGoals(input: TdeeInput): TdeeResult {
     targetKcal = Math.round(tdee + Math.min(400, Math.max(250, tdee * 0.12)))
   }
 
-  // Round to nearest 10 kcal for clean user-facing numbers
   targetKcal = Math.round(targetKcal / 10) * 10
 
-  // Balanced protein target based on body weight (1.5-1.8g/kg), capped safely
   const proteinPerKg = input.goal === 'lose' ? 1.8 : input.goal === 'gain' ? 1.7 : 1.5
   const rawProtein = Math.round(weight * proteinPerKg)
   const maxProtein = Math.round((targetKcal * 0.35) / 4)
   const proteinGrams = Math.max(55, Math.min(maxProtein, rawProtein))
 
-  // Healthy dietary fat share (~27% of calories)
   const fatGrams = Math.max(35, Math.round((targetKcal * 0.27) / 9))
 
-  // Remaining calories allocated to carbohydrates
   const remainingKcal = Math.max(200, targetKcal - proteinGrams * 4 - fatGrams * 9)
   const carbsGrams = Math.round(remainingKcal / 4)
 
-  // ~32ml/kg divided by 240ml glass, clamped to 6-14 glasses
   const waterGoalGlasses = Math.max(6, Math.min(14, Math.round((weight * 32) / 240)))
 
   return {
-    bmr,
-    tdee,
-    recommendedGoals: {
-      dailyKcal: targetKcal,
-      proteinGrams,
-      carbsGrams,
-      fatGrams,
-      waterGoalGlasses,
+    ok: true,
+    result: {
+      bmr,
+      tdee,
+      recommendedGoals: {
+        dailyKcal: targetKcal,
+        proteinGrams,
+        carbsGrams,
+        fatGrams,
+        waterGoalGlasses,
+      },
     },
   }
+}
+
+/** Convenience wrapper for adult (18+) inputs; throws if age < 18. */
+export function calculateRecommendedGoals(input: TdeeInput): TdeeResult {
+  const evaluated = evaluateTdeeGoals(input)
+  if (!evaluated.ok) {
+    throw new Error(evaluated.error)
+  }
+  return evaluated.result
 }

@@ -95,13 +95,23 @@ const BUILTIN_UNITS: UnitDefinition[] = [
     fallbackGrams: 140,
   },
   {
+    canonical: 'اسکوپ',
+    synonyms: ['اسکوپ', 'پیمانه پروتئین'],
+    fallbackGrams: 50,
+  },
+  {
+    canonical: 'پیمانه',
+    synonyms: ['پیمانه'],
+    fallbackGrams: 100,
+  },
+  {
     canonical: 'برش',
     synonyms: ['برش', 'اسلایس', 'قاچ'],
-    fallbackGrams: 30,
+    fallbackGrams: 35,
   },
   {
     canonical: 'لیوان',
-    synonyms: ['لیوان', 'پیمانه', 'ماگ'],
+    synonyms: ['لیوان', 'ماگ'],
     fallbackGrams: 230,
   },
   {
@@ -126,7 +136,7 @@ const BUILTIN_UNITS: UnitDefinition[] = [
   },
   {
     canonical: 'تکه',
-    synonyms: ['تکه', 'تیکه', 'قطعه'],
+    synonyms: ['تکه', 'تیکه', 'قطعه', 'مربع'],
     fallbackGrams: 50,
   },
   {
@@ -145,9 +155,29 @@ const BUILTIN_UNITS: UnitDefinition[] = [
     fallbackGrams: 28,
   },
   {
+    canonical: 'بسته',
+    synonyms: ['بسته', 'پاکت', 'ساشه'],
+    fallbackGrams: 50,
+  },
+  {
+    canonical: 'قوطی',
+    synonyms: ['قوطی', 'کنسرو'],
+    fallbackGrams: 180,
+  },
+  {
     canonical: 'حبه',
     synonyms: ['حبه'],
     fallbackGrams: 4,
+  },
+  {
+    canonical: 'شاخه',
+    synonyms: ['شاخه'],
+    fallbackGrams: 15,
+  },
+  {
+    canonical: 'خوشه',
+    synonyms: ['خوشه'],
+    fallbackGrams: 160,
   },
   {
     canonical: 'عدد',
@@ -224,7 +254,29 @@ const FRACTION_PHRASES: Array<{ tokens: string[]; value: number }> = [
   { tokens: ['دو', 'سوم'], value: 0.67 },
 ]
 
-const FILLER_WORDS = new Set(['از', 'با', 'مقداری', 'حدود', 'تقریبا', 'کمی', 'مقدار', 'کامل', 'متوسط'])
+const FILLER_WORDS = new Set(['از', 'مقداری', 'حدود', 'تقریبا', 'کمی', 'مقدار', 'کامل', 'متوسط'])
+
+/**
+ * Ambiguous generic Persian terms where multiple dishes differ significantly
+ * in calories (e.g. برنج کته vs برنج آبکش، ماست معمولی vs ماست پرچرب/یونانی).
+ */
+const AMBIGUOUS_GENERIC_QUERIES: Record<string, string[]> = {
+  برنج: ['berenj-kateh', 'berenj-abkesh', 'berenj-ghahvei'],
+  پلو: ['berenj-kateh', 'berenj-abkesh', 'baghali-polo'],
+  چلو: ['berenj-kateh', 'berenj-abkesh'],
+  ماست: ['yogurt', 'yogurt-highfat', 'strained-yogurt', 'greek-yogurt'],
+  پنیر: ['white-cheese', 'lighvan-cheese', 'cream-cheese', 'cottage-cheese'],
+  شیر: ['milk', 'milk-fullfat', 'chocolate-milk'],
+  کباب: ['kabab-koobideh', 'joojeh-kabab', 'kabab-barg', 'kabab-chenjeh'],
+  پیتزا: ['pizza-makhloot', 'pizza-pepperoni', 'pizza-margherita', 'pizza-chicken'],
+  شیرینی: ['dry-pastry', 'danish-pastry', 'napoleon-pastry', 'baklava'],
+  بستنی: ['saffron-ice-cream', 'packaged-icecream-bar'],
+  شکلات: ['milk-chocolate', 'dark-chocolate-70'],
+  ماهی: ['grilled-trout', 'fried-fish', 'salmon-grilled'],
+  سوپ: ['barley-soup', 'soup-vermicelli', 'soup-mushroom'],
+  بیسکویت: ['biscuit-mother', 'petit-beurre', 'sagheh-talayi'],
+  مرغ: ['grilled-chicken-breast', 'chicken-thigh-cooked'],
+}
 
 /** Protect "یک و نیم", "2 و نیم", "دو و ربع", etc., from being split on "و". */
 const NUMBER_TOKEN_PATTERN =
@@ -248,7 +300,6 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
     .filter(Boolean)
   if (lines.length === 0) return []
 
-  // Collect known dish names/aliases containing " و " (e.g., "ارده و شیره", "کشک و بادمجان")
   const vavDishes: string[] = []
   for (const food of foods) {
     const names = [food.name, ...food.aliases]
@@ -264,13 +315,11 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
   const segments: string[] = []
 
   for (const line of lines) {
-    // 1. Protect compound quantities containing "و" (e.g., "یک و نیم")
     let protectedText = line.replace(
       COMPOUND_QTY_REGEX,
       `$1$2 ${VAV_PLACEHOLDER} $3`,
     )
 
-    // 2. Protect known dish names/aliases containing " و "
     for (const dish of vavDishes) {
       if (protectedText.includes(dish)) {
         const escaped = dish.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -279,7 +328,6 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
       }
     }
 
-    // 3. Split on commas (Latin/Persian), semicolons, plus, "به همراه", "همراه با", and standalone " و "
     const rawParts = protectedText
       .split(/(?:[+,،;؛]|\s+(?:به\s+همراه|همراه\s+با)\s+|\s+و\s+)/)
       .map((part) => part.replace(new RegExp(VAV_PLACEHOLDER, 'g'), 'و').trim())
@@ -320,11 +368,9 @@ function parseBaseNumberToken(token: string): number | null {
   return null
 }
 
-/** Attempts to extract a quantity starting at index 0 of `tokens`. */
 function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
   if (tokens.length === 0) return null
 
-  // Check compound "<num> و یک دوم / یک چهارم" (4 tokens)
   if (tokens.length >= 4 && tokens[1] === 'و') {
     const base = parseBaseNumberToken(tokens[0])
     if (base !== null && base >= 1) {
@@ -337,7 +383,6 @@ function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
     }
   }
 
-  // Check compound "<num> و نیم / نصف / ربع" (3 tokens)
   if (tokens.length >= 3 && tokens[1] === 'و') {
     const base = parseBaseNumberToken(tokens[0])
     if (base !== null && base >= 1) {
@@ -350,7 +395,6 @@ function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
     }
   }
 
-  // Check 2-token fractions ("یک دوم", "یک چهارم", "سه چهارم", etc.)
   if (tokens.length >= 2) {
     for (const frac of FRACTION_PHRASES) {
       if (tokens[0] === frac.tokens[0] && tokens[1] === frac.tokens[1]) {
@@ -359,7 +403,6 @@ function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
     }
   }
 
-  // Check "<num> تا" / "یه دونه" / "یک دونه"
   if (tokens.length >= 2 && (tokens[1] === 'تا' || tokens[1] === 'دونه' || tokens[1] === 'دانه')) {
     const base = parseBaseNumberToken(tokens[0])
     if (base !== null) {
@@ -367,8 +410,12 @@ function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
     }
   }
 
-  // Check single-token count words ending in "تا" (e.g., "دوتا", "چهارتا")
-  if (tokens[0] === 'دوتا' || tokens[0] === 'سهتا' || tokens[0] === 'چهارتا' || tokens[0] === 'پنجتا') {
+  if (
+    tokens[0] === 'دوتا' ||
+    tokens[0] === 'سهتا' ||
+    tokens[0] === 'چهارتا' ||
+    tokens[0] === 'پنجتا'
+  ) {
     return {
       quantity: SINGLE_NUMBER_WORDS[tokens[0]],
       consumedTokens: 1,
@@ -376,7 +423,6 @@ function matchQuantityAtStart(tokens: string[]): QuantityMatch | null {
     }
   }
 
-  // Check single numeric or Persian word number
   const single = parseBaseNumberToken(tokens[0])
   if (single !== null) {
     return { quantity: single, consumedTokens: 1 }
@@ -391,10 +437,6 @@ interface UnitPattern {
   compact: string
 }
 
-/**
- * Builds a prioritized list of unit patterns combining built-in Iranian household
- * units AND any custom units defined on foods in the database.
- */
 function buildUnitPatterns(foods: FoodItem[]): UnitPattern[] {
   const patterns: UnitPattern[] = []
   const seen = new Set<string>()
@@ -412,7 +454,6 @@ function buildUnitPatterns(foods: FoodItem[]): UnitPattern[] {
     })
   }
 
-  // Custom & food-defined units first
   for (const food of foods) {
     for (const unit of food.units) {
       addPattern(unit.name, unit.name)
@@ -424,7 +465,6 @@ function buildUnitPatterns(foods: FoodItem[]): UnitPattern[] {
     }
   }
 
-  // Built-in Iranian units & synonyms
   for (const def of BUILTIN_UNITS) {
     addPattern(def.canonical, def.canonical)
     for (const syn of def.synonyms) {
@@ -432,7 +472,6 @@ function buildUnitPatterns(foods: FoodItem[]): UnitPattern[] {
     }
   }
 
-  // Match longer multi-word phrases first so "قاشق غذاخوری" beats "قاشق"
   patterns.sort((a, b) => {
     if (b.tokens.length !== a.tokens.length) return b.tokens.length - a.tokens.length
     return b.compact.length - a.compact.length
@@ -464,7 +503,6 @@ function matchUnitAtStart(tokens: string[], patterns: UnitPattern[]): UnitMatch 
         return { canonical: pattern.canonical, consumedTokens: len }
       }
     }
-    // Also check compact single-token form (e.g. "کفدست" -> "کف دست", "قاشقچایخوری")
     if (len > 1 && normalizedTokens[0] === pattern.compact) {
       return { canonical: pattern.canonical, consumedTokens: 1 }
     }
@@ -473,7 +511,7 @@ function matchUnitAtStart(tokens: string[], patterns: UnitPattern[]): UnitMatch 
   return null
 }
 
-/** Optimal String Alignment (Damerau-Levenshtein) distance for fuzzy Persian typo matching (handles swaps like فنسجان -> فسنجان). */
+/** Optimal String Alignment (Damerau-Levenshtein) distance for fuzzy Persian typo matching. */
 function damerauLevenshtein(a: string, b: string): number {
   const m = a.length
   const n = b.length
@@ -487,13 +525,9 @@ function damerauLevenshtein(a: string, b: string): number {
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      let best = Math.min(
-        dp[i - 1][j] + 1, // deletion
-        dp[i][j - 1] + 1, // insertion
-        dp[i - 1][j - 1] + cost, // substitution
-      )
+      let best = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
       if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-        best = Math.min(best, dp[i - 2][j - 2] + 1) // adjacent transposition
+        best = Math.min(best, dp[i - 2][j - 2] + 1)
       }
       dp[i][j] = best
     }
@@ -501,16 +535,13 @@ function damerauLevenshtein(a: string, b: string): number {
   return dp[m][n]
 }
 
-/** Scores how closely a Persian query string matches a candidate food name or alias. */
 function scoreFoodNameMatch(querySpace: string, queryCompact: string, candidate: string): number {
   const candSpace = toSpaceKey(candidate)
   const candCompact = toCompactKey(candidate)
   if (!queryCompact || !candCompact) return 0
 
-  // 1. Exact compact match ("قورمهسبزی" === "قورمه‌سبزی")
   if (queryCompact === candCompact) return 1.0
 
-  // 2. Prefix / suffix / containment with length proximity bonus
   if (candCompact.startsWith(queryCompact) && queryCompact.length >= 2) {
     const ratio = queryCompact.length / candCompact.length
     return 0.85 + ratio * 0.12
@@ -528,7 +559,6 @@ function scoreFoodNameMatch(querySpace: string, queryCompact: string, candidate:
     return 0.74 + ratio * 0.14
   }
 
-  // 3. Token overlap (good for "پلو مرغ" -> "زرشک‌پلو با مرغ")
   const qTokens = querySpace.split(' ').filter((t) => t.length >= 2)
   const cTokens = candSpace.split(' ').filter((t) => t.length >= 2)
   if (qTokens.length > 0 && cTokens.length > 0) {
@@ -548,7 +578,6 @@ function scoreFoodNameMatch(querySpace: string, queryCompact: string, candidate:
     }
   }
 
-  // 4. Damerau-Levenshtein fuzzy match for small typos ("قرمهسبزی", "فنسجان", "کوبده")
   const maxLen = Math.max(queryCompact.length, candCompact.length)
   if (maxLen >= 4) {
     const dist = damerauLevenshtein(queryCompact, candCompact)
@@ -561,11 +590,15 @@ function scoreFoodNameMatch(querySpace: string, queryCompact: string, candidate:
   return 0
 }
 
-/** Finds the best matching FoodItem from the database for a food query string. */
-export function matchFoodInDatabase(
-  foodQuery: string,
-  foods: FoodItem[],
-): { food: FoodItem; confidence: number } | null {
+export interface FoodMatchResult {
+  food: FoodItem
+  confidence: number
+  isAmbiguous: boolean
+  alternatives: FoodItem[]
+}
+
+/** Finds the best matching FoodItem plus ambiguity/alternative suggestions when relevant. */
+export function matchFoodInDatabase(foodQuery: string, foods: FoodItem[]): FoodMatchResult | null {
   const cleaned = foodQuery
     .split(' ')
     .filter((token) => token && !FILLER_WORDS.has(token))
@@ -576,36 +609,68 @@ export function matchFoodInDatabase(
   const queryCompact = toCompactKey(cleaned || foodQuery)
   if (!queryCompact || queryCompact.length < 2) return null
 
-  let bestFood: FoodItem | null = null
-  let bestScore = 0
+  const scored: Array<{ food: FoodItem; score: number }> = []
 
   for (const food of foods) {
     let foodBest = scoreFoodNameMatch(querySpace, queryCompact, food.name)
     for (const alias of food.aliases) {
       const aliasScore = scoreFoodNameMatch(querySpace, queryCompact, alias)
-      // Give slight tie-breaker edge to primary name over alias
       const adjusted = aliasScore === 1.0 ? 0.995 : aliasScore * 0.99
       if (adjusted > foodBest) {
         foodBest = adjusted
       }
     }
-
-    if (foodBest > bestScore) {
-      bestScore = foodBest
-      bestFood = food
+    if (foodBest >= 0.64) {
+      scored.push({ food, score: foodBest })
     }
   }
 
-  if (bestFood && bestScore >= 0.64) {
-    return {
-      food: bestFood,
-      confidence: Math.round(bestScore * 100) / 100,
+  if (scored.length === 0) return null
+  scored.sort((a, b) => b.score - a.score)
+
+  const top = scored[0]
+  const confidence = Math.round(top.score * 100) / 100
+
+  // Check explicit generic ambiguous term (e.g. "برنج" -> کته vs آبکش vs قهوه‌ای)
+  const genericIds = AMBIGUOUS_GENERIC_QUERIES[queryCompact]
+  let alternatives: FoodItem[] = []
+  let isAmbiguous = false
+
+  if (genericIds) {
+    const byId = new Map(foods.map((f) => [f.id, f]))
+    alternatives = genericIds
+      .filter((id) => id !== top.food.id)
+      .map((id) => byId.get(id))
+      .filter((f): f is FoodItem => Boolean(f))
+      .slice(0, 3)
+    if (alternatives.length > 0) {
+      isAmbiguous = true
     }
+  } else if (confidence < 0.86) {
+    // Low-confidence / fuzzy match: surface up to 3 nearby candidates
+    alternatives = scored
+      .slice(1, 4)
+      .filter((s) => s.score >= 0.68)
+      .map((s) => s.food)
+    isAmbiguous = true
+  } else if (
+    scored.length > 1 &&
+    top.score < 0.98 &&
+    top.score - scored[1].score <= 0.04
+  ) {
+    // Close tie between multiple foods
+    alternatives = scored.slice(1, 4).map((s) => s.food)
+    isAmbiguous = true
   }
-  return null
+
+  return {
+    food: top.food,
+    confidence,
+    isAmbiguous,
+    alternatives,
+  }
 }
 
-/** Resolves unit label and gram weight for a matched food and optional requested unit. */
 export function resolveFoodUnit(
   food: FoodItem,
   requestedUnit: string | null,
@@ -620,7 +685,6 @@ export function resolveFoodUnit(
 
   const reqCompact = toCompactKey(requestedUnit)
 
-  // 1. Direct match on the food's own units or aliases
   for (const u of food.units) {
     if (toCompactKey(u.name) === reqCompact) {
       return { unit: u.name, gramsPerUnit: u.grams }
@@ -630,7 +694,6 @@ export function resolveFoodUnit(
     }
   }
 
-  // 2. Always support grams and milliliters directly from per100g
   if (reqCompact === toCompactKey('گرم')) {
     return { unit: 'گرم', gramsPerUnit: 1 }
   }
@@ -638,23 +701,18 @@ export function resolveFoodUnit(
     return { unit: 'میلی‌لیتر', gramsPerUnit: 1 }
   }
 
-  // 3. If user said generic "عدد" (e.g. "دو تا نان سنگک" or "دو تا کوکو") and food lacks "عدد",
-  // map to the food's natural default unit
   if (reqCompact === toCompactKey('عدد')) {
     return { unit: defaultUnitObj.name, gramsPerUnit: defaultUnitObj.grams }
   }
 
-  // 4. Built-in fallback weight for standard household units
   const builtin = BUILTIN_UNITS.find((b) => toCompactKey(b.canonical) === reqCompact)
   if (builtin) {
     return { unit: builtin.canonical, gramsPerUnit: builtin.fallbackGrams }
   }
 
-  // 5. Fallback to food's default unit
   return { unit: defaultUnitObj.name, gramsPerUnit: defaultUnitObj.grams }
 }
 
-/** Deterministic macro calculator given food, quantity, and unit weight in grams. */
 export function calculateFoodMacros(
   food: FoodItem,
   quantity: number,
@@ -679,17 +737,12 @@ interface ExtractedSegmentParts {
   foodQuery: string
 }
 
-/**
- * Extracts (quantity, unit, foodQuery) from a single normalized Persian segment.
- * Handles both "<qty> <unit> <food>" and "<food> <qty> <unit>" word orders.
- */
 function extractSegmentParts(segment: string, unitPatterns: UnitPattern[]): ExtractedSegmentParts {
   const tokens = segment.split(' ').filter(Boolean)
   if (tokens.length === 0) {
     return { quantity: 1, unit: null, foodQuery: '' }
   }
 
-  // Pattern A: Leading quantity [optional unit] <food>
   const leadingQty = matchQuantityAtStart(tokens)
   if (leadingQty) {
     let idx = leadingQty.consumedTokens
@@ -707,7 +760,6 @@ function extractSegmentParts(segment: string, unitPatterns: UnitPattern[]): Extr
     }
   }
 
-  // Pattern B: Leading unit without explicit number (e.g., "کف دست سنگک", "لیوان دوغ") -> qty = 1
   const leadingUnit = matchUnitAtStart(tokens, unitPatterns)
   if (leadingUnit) {
     const foodQuery = tokens.slice(leadingUnit.consumedTokens).join(' ').trim()
@@ -716,7 +768,6 @@ function extractSegmentParts(segment: string, unitPatterns: UnitPattern[]): Extr
     }
   }
 
-  // Pattern C: Trailing quantity + optional unit (e.g., "برنج کته دو کفگیر", "سنگک 2 کف دست", "مرغ 150 گرم")
   for (let splitIdx = 1; splitIdx < tokens.length; splitIdx++) {
     const tail = tokens.slice(splitIdx)
     const tailQty = matchQuantityAtStart(tail)
@@ -724,7 +775,6 @@ function extractSegmentParts(segment: string, unitPatterns: UnitPattern[]): Extr
 
     const afterQty = tail.slice(tailQty.consumedTokens)
     if (afterQty.length === 0) {
-      // e.g. "تخم مرغ 2"
       const foodQuery = tokens.slice(0, splitIdx).join(' ').trim()
       return {
         quantity: tailQty.quantity,
@@ -744,14 +794,23 @@ function extractSegmentParts(segment: string, unitPatterns: UnitPattern[]): Extr
     }
   }
 
-  // Pattern D: Just the food name (implies qty = 1, default unit)
   return { quantity: 1, unit: null, foodQuery: segment }
 }
 
 /**
+ * Strips leading quantity & unit from an unmatched segment so 1-click
+ * "افزودن به بانک غذا" prefills a clean food name (e.g. "دو کاسه غذای خاص" -> "غذای خاص").
+ */
+export function extractCleanFoodName(rawSegment: string, foods: FoodItem[]): string {
+  const norm = normalizePersian(rawSegment)
+  if (!norm) return rawSegment.trim()
+  const unitPatterns = buildUnitPatterns(foods)
+  const { foodQuery } = extractSegmentParts(norm, unitPatterns)
+  return foodQuery || rawSegment.trim()
+}
+
+/**
  * Main offline, deterministic Persian Natural Language Food Parser.
- * Parses everyday sentences such as:
- * "دو کفگیر قورمهسبزی و یک کف دست سنگک و نصف لیوان دوغ"
  */
 export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseResult {
   const trimmed = input.trim()
@@ -793,13 +852,14 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       fat: macros.fat,
       rawSegment: segment,
       confidence: match.confidence,
+      isAmbiguous: match.isAmbiguous,
+      alternatives: match.alternatives,
     })
   })
 
   return { items, unmatchedSegments }
 }
 
-/** Checks if a food matches a Persian search query (used by the Food Database tab). */
 export function matchesFoodSearch(food: FoodItem, query: string): boolean {
   const trimmed = query.trim()
   if (!trimmed) return true

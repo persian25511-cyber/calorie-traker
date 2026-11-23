@@ -1,20 +1,38 @@
-import { Check, Coffee, Edit3, Minus, Moon, Plus, RotateCcw, Sun, Sunset, Trash2 } from 'lucide-react'
+import {
+  BookmarkPlus,
+  Check,
+  Coffee,
+  Edit3,
+  Minus,
+  Moon,
+  Plus,
+  RotateCcw,
+  Sun,
+  Sunset,
+  Trash2,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   MEAL_TYPE_LABELS,
   MEAL_TYPE_ORDER,
+  type FoodItem,
   type LoggedFoodEntry,
   type MealType,
 } from '../types/nutrition'
 import { formatFaNumber, formatQuantityFa, formatTimeFa } from '../utils/persianFormat'
 
 interface TodayMealsListProps {
+  foods: FoodItem[]
   dayEntries: LoggedFoodEntry[]
   previousDayEntries: LoggedFoodEntry[]
   previousDayLabel: string
   onDeleteEntry: (entryId: string) => void
-  onUpdateEntry: (entryId: string, patch: { quantity?: number; mealType?: MealType }) => void
+  onUpdateEntry: (
+    entryId: string,
+    patch: { quantity?: number; unit?: string; mealType?: MealType },
+  ) => void
   onRepeatEntries: (entries: LoggedFoodEntry[], targetMealType: MealType) => void
+  onSaveTemplate: (name: string, mealType: MealType, items: LoggedFoodEntry[]) => void
 }
 
 const MEAL_ICONS: Record<MealType, typeof Sun> = {
@@ -25,14 +43,20 @@ const MEAL_ICONS: Record<MealType, typeof Sun> = {
 }
 
 export function TodayMealsList({
+  foods,
   dayEntries,
   previousDayEntries,
   previousDayLabel,
   onDeleteEntry,
   onUpdateEntry,
   onRepeatEntries,
+  onSaveTemplate,
 }: TodayMealsListProps) {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [savingTemplateFor, setSavingTemplateFor] = useState<MealType | null>(null)
+  const [templateName, setTemplateName] = useState('')
+
+  const foodById = useMemo(() => new Map(foods.map((f) => [f.id, f])), [foods])
 
   const groupedToday = useMemo(() => {
     const map: Record<MealType, LoggedFoodEntry[]> = {
@@ -128,6 +152,7 @@ export function TodayMealsList({
             const subtotalKcal = items.reduce((sum, item) => sum + item.kcal, 0)
             const subtotalProtein =
               Math.round(items.reduce((sum, item) => sum + item.protein, 0) * 10) / 10
+            const isNamingTemplate = savingTemplateFor === mealType
 
             return (
               <div
@@ -136,7 +161,7 @@ export function TodayMealsList({
                 className="card-surface rounded-2xl overflow-hidden animate-fade-up"
               >
                 {/* Meal Group Header */}
-                <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[#222227]">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-[#222227]">
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-lg bg-[#1E1E22] flex items-center justify-center text-zinc-300">
                       <Icon className="w-3.5 h-3.5" />
@@ -145,17 +170,32 @@ export function TodayMealsList({
                       <h3 className="text-sm font-semibold text-zinc-100 leading-tight">
                         {MEAL_TYPE_LABELS[mealType]}
                       </h3>
-                      <span className="text-[11px] text-zinc-500 tabular-nums-fa">
+                      <span className="text-[11px] text-zinc-400 tabular-nums-fa">
                         {formatFaNumber(items.length)} مورد · پروتئین{' '}
                         {formatFaNumber(subtotalProtein, 1)} گرم
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-emerald-400 tabular-nums-fa">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-emerald-400 tabular-nums-fa ml-1">
                       {formatFaNumber(subtotalKcal)} کالری
                     </span>
+                    <button
+                      type="button"
+                      data-testid={`save-template-trigger-${mealType}`}
+                      onClick={() => {
+                        setSavingTemplateFor((curr) => (curr === mealType ? null : mealType))
+                        setTemplateName(
+                          `${MEAL_TYPE_LABELS[mealType]} ${items[0]?.foodName ?? ''}`.trim(),
+                        )
+                      }}
+                      title="ذخیره به عنوان وعده منتخب"
+                      className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#28282F] border border-[#2B2B32] px-2 py-1 text-[11px] text-zinc-300 hover:text-amber-300 transition-colors"
+                    >
+                      <BookmarkPlus className="w-3 h-3" />
+                      <span className="hidden sm:inline">منتخب</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => onRepeatEntries(items, mealType)}
@@ -168,10 +208,47 @@ export function TodayMealsList({
                   </div>
                 </div>
 
+                {/* Inline Save Template Name Bar */}
+                {isNamingTemplate && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      if (!templateName.trim()) return
+                      onSaveTemplate(templateName.trim(), mealType, items)
+                      setSavingTemplateFor(null)
+                      setTemplateName('')
+                    }}
+                    className="px-4 py-2.5 bg-[#121215] border-b border-[#222227] flex items-center gap-2 animate-fade-up"
+                  >
+                    <input
+                      type="text"
+                      data-testid="template-name-input"
+                      value={templateName}
+                      onChange={(e) => setTemplateName(e.target.value)}
+                      placeholder="نام قالب وعده (مثلاً: ناهار قورمه)"
+                      className="flex-1 min-w-0 rounded-lg bg-[#0C0C0D] border border-[#2E2E35] focus:border-emerald-500/70 focus:outline-none px-2.5 py-1.5 text-xs text-zinc-100"
+                    />
+                    <button
+                      type="submit"
+                      data-testid="confirm-save-template-btn"
+                      className="rounded-lg bg-emerald-500 text-[#051B11] font-bold text-xs px-3 py-1.5 shrink-0"
+                    >
+                      ذخیره
+                    </button>
+                  </form>
+                )}
+
                 {/* Meal Items */}
                 <ul className="divide-y divide-[#1F1F24]">
                   {items.map((entry) => {
                     const isEditing = editingEntryId === entry.id
+                    const matchedFood = foodById.get(entry.foodId)
+                    const unitOptions = matchedFood
+                      ? matchedFood.units.some((u) => u.name === entry.unit)
+                        ? matchedFood.units
+                        : [{ name: entry.unit, grams: 1 }, ...matchedFood.units]
+                      : null
+
                     return (
                       <li
                         key={entry.id}
@@ -188,25 +265,25 @@ export function TodayMealsList({
                                 {formatQuantityFa(entry.quantity)} {entry.unit}
                               </span>
                             </div>
-                            <div className="flex items-center flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-zinc-500 mt-0.5 tabular-nums-fa">
+                            <div className="flex items-center flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
                               <span>{formatFaNumber(entry.totalGrams)} گرم</span>
-                              <span className="text-sky-400/80">
+                              <span className="text-sky-400/90">
                                 پ {formatFaNumber(entry.protein, 1)}گ
                               </span>
-                              <span className="text-amber-400/80">
+                              <span className="text-amber-400/90">
                                 ک {formatFaNumber(entry.carbs, 1)}گ
                               </span>
-                              <span className="text-rose-400/80">
+                              <span className="text-rose-400/90">
                                 چ {formatFaNumber(entry.fat, 1)}گ
                               </span>
-                              <span className="text-zinc-600">{formatTimeFa(entry.timestamp)}</span>
+                              <span className="text-zinc-500">{formatTimeFa(entry.timestamp)}</span>
                             </div>
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="text-sm font-semibold text-zinc-200 tabular-nums-fa ml-1">
                               {formatFaNumber(entry.kcal)}
-                              <span className="text-[10px] text-zinc-500 font-normal mr-1">
+                              <span className="text-[10px] text-zinc-400 font-normal mr-1">
                                 کالری
                               </span>
                             </span>
@@ -220,7 +297,7 @@ export function TodayMealsList({
                               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                                 isEditing
                                   ? 'bg-emerald-500/15 text-emerald-400'
-                                  : 'text-zinc-500 hover:text-zinc-200 hover:bg-[#25252B]'
+                                  : 'text-zinc-400 hover:text-zinc-100 hover:bg-[#25252B]'
                               }`}
                             >
                               {isEditing ? (
@@ -237,20 +314,20 @@ export function TodayMealsList({
                               }}
                               aria-label={`حذف ${entry.foodName}`}
                               data-testid="delete-meal-item-btn"
-                              className="w-8 h-8 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/12 flex items-center justify-center transition-colors"
+                              className="w-8 h-8 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/12 flex items-center justify-center transition-colors"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
 
-                        {/* Inline Quick Edit Drawer */}
+                        {/* Inline Quick Edit Drawer (Quantity + Unit + Meal Type) */}
                         {isEditing && (
                           <div
                             data-testid="inline-entry-editor"
                             className="mt-2.5 pt-2.5 border-t border-[#26262C] flex flex-wrap items-center justify-between gap-2.5 animate-fade-up"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center flex-wrap gap-1.5">
                               <span className="text-[11px] text-zinc-400">مقدار:</span>
                               <button
                                 type="button"
@@ -260,8 +337,8 @@ export function TodayMealsList({
                               >
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
-                              <span className="text-xs font-semibold text-zinc-100 px-1.5 tabular-nums-fa">
-                                {formatQuantityFa(entry.quantity)} {entry.unit}
+                              <span className="text-xs font-semibold text-zinc-100 px-1 tabular-nums-fa">
+                                {formatQuantityFa(entry.quantity)}
                               </span>
                               <button
                                 type="button"
@@ -271,6 +348,24 @@ export function TodayMealsList({
                               >
                                 <Minus className="w-3.5 h-3.5" />
                               </button>
+
+                              {unitOptions && unitOptions.length > 1 && (
+                                <select
+                                  aria-label={`تغییر واحد ${entry.foodName}`}
+                                  data-testid="inline-entry-unit-select"
+                                  value={entry.unit}
+                                  onChange={(e) =>
+                                    onUpdateEntry(entry.id, { unit: e.target.value })
+                                  }
+                                  className="rounded-lg bg-[#25252C] border border-[#35353F] text-zinc-100 text-xs px-2 py-1 focus:outline-none focus:border-emerald-500/70"
+                                >
+                                  {unitOptions.map((u) => (
+                                    <option key={u.name} value={u.name}>
+                                      {u.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1">

@@ -1,7 +1,6 @@
 # ==============================================================================
-# Multi-stage production Dockerfile for Railway (Node 22 + Caddy 2)
-# Follows Railway's official React/Vite deployment guide:
-# https://railway.com/guides/react
+# Multi-stage hardened non-root Dockerfile for Railway (Node 22 + Caddy 2)
+# Follows Railway's official React/Vite guide: https://railway.com/guides/react
 # ==============================================================================
 
 FROM node:22-alpine AS build
@@ -33,16 +32,27 @@ COPY . ./
 RUN npm run build
 
 # ==============================================================================
-# Runtime Stage: Lightweight Caddy 2 static SPA server
+# Runtime Stage: Non-root lightweight Caddy 2 static SPA server
 # ==============================================================================
 FROM caddy:2-alpine AS runner
 
 WORKDIR /app
 
-COPY Caddyfile /app/Caddyfile
+# Create dedicated non-root system user and prepare writable Caddy data/config dirs
+RUN addgroup -S -g 1001 appgroup \
+  && adduser -S -u 1001 -G appgroup appuser \
+  && mkdir -p /app/dist /data /config \
+  && chown -R appuser:appgroup /app /data /config
+
+COPY --chown=appuser:appgroup Caddyfile /app/Caddyfile
 RUN caddy fmt /app/Caddyfile --overwrite
 
-COPY --from=build /app/dist /app/dist
+COPY --from=build --chown=appuser:appgroup /app/dist /app/dist
+
+USER appuser
+
+ENV XDG_DATA_HOME=/data
+ENV XDG_CONFIG_HOME=/config
 
 EXPOSE 3000
 

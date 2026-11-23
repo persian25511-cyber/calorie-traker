@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Vazirmatn", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: "Vazirmatn Variable", "Vazirmatn", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --color-canvas: #0C0C0D;
   --color-surface: #161618;
   --color-surface-elevated: #1E1E22;
@@ -15,13 +15,35 @@
   --color-fat: #FB7185;
 }
 
+:root,
+html.dark {
+  --bg-canvas: #0C0C0D;
+  --bg-surface: #161618;
+  --bg-elevated: #1E1E22;
+  --border-surface: #26262A;
+  --border-elevated: #2A2A30;
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  color-scheme: dark;
+}
+
+html.light {
+  --bg-canvas: #F4F5F7;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F1F3F5;
+  --border-surface: #E2E5EA;
+  --border-elevated: #D5D9E2;
+  --text-primary: #111318;
+  --text-secondary: #525866;
+  color-scheme: light;
+}
+
 @layer base {
   html {
     font-family: var(--font-sans);
-    background-color: #0C0C0D;
-    color: #FAFAFA;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
     direction: rtl;
-    color-scheme: dark;
     -webkit-tap-highlight-color: transparent;
     overflow-x: hidden;
   }
@@ -29,8 +51,8 @@
   body {
     margin: 0;
     min-height: 100dvh;
-    background-color: #0C0C0D;
-    color: #FAFAFA;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
     line-height: 1.65;
     overflow-x: hidden;
   }
@@ -45,6 +67,11 @@
   select {
     font-family: inherit;
   }
+
+  :focus-visible {
+    outline: 2px solid #10B981;
+    outline-offset: 2px;
+  }
 }
 
 .tabular-nums-fa {
@@ -52,19 +79,90 @@
   font-feature-settings: "tnum" 1;
 }
 
-/* Tactile card surface with subtle inner top edge highlight */
 .card-surface {
-  background-color: #161618;
-  border: 1px solid #26262A;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-surface);
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
 }
 
 .card-elevated {
-  background-color: #1E1E22;
-  border: 1px solid #2A2A30;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-elevated);
 }
 
-/* Hide scrollbars cleanly for horizontal suggestion strips */
+/* Light theme surface & typography adaptation without duplicating component markup */
+html.light .bg-\[\#0C0C0D\],
+html.light .bg-\[\#0C0C0D\]\/90 {
+  background-color: #F4F5F7 !important;
+}
+html.light .bg-\[\#161618\],
+html.light .bg-\[\#111113\]\/92 {
+  background-color: #FFFFFF !important;
+}
+html.light .bg-\[\#1E1E22\],
+html.light .bg-\[\#222228\],
+html.light .bg-\[\#25252B\],
+html.light .bg-\[\#25252C\],
+html.light .bg-\[\#27272D\],
+html.light .bg-\[\#27272E\] {
+  background-color: #ECEFF3 !important;
+}
+html.light .border-\[\#1E1E22\],
+html.light .border-\[\#222226\],
+html.light .border-\[\#222227\],
+html.light .border-\[\#26262A\],
+html.light .border-\[\#26262C\],
+html.light .border-\[\#2A2A30\],
+html.light .border-\[\#2A2A31\],
+html.light .border-\[\#2B2B31\],
+html.light .border-\[\#2B2B32\],
+html.light .border-\[\#2C2C32\],
+html.light .border-\[\#2C2C33\],
+html.light .border-\[\#2E2E35\],
+html.light .border-\[\#34343D\],
+html.light .border-\[\#35353F\] {
+  border-color: #DCE0E8 !important;
+}
+html.light .divide-\[\#1F1F24\] > :not(:last-child) {
+  border-color: #E5E7EB !important;
+}
+html.light .bg-\[\#242429\] {
+  background-color: #E2E6ED !important;
+}
+html.light .text-zinc-50,
+html.light .text-zinc-100,
+html.light .text-zinc-200 {
+  color: #111318 !important;
+}
+html.light .text-zinc-300 {
+  color: #374151 !important;
+}
+html.light .text-zinc-400,
+html.light .text-zinc-500 {
+  color: #525866 !important;
+}
+html.light .text-emerald-300 {
+  color: #047857 !important;
+}
+html.light .text-amber-300,
+html.light .text-amber-200 {
+  color: #B45309 !important;
+}
+html.light .text-sky-400,
+html.light .text-cyan-400,
+html.light .text-cyan-300 {
+  color: #0369A1 !important;
+}
+html.light .text-rose-300,
+html.light .text-rose-400 {
+  color: #BE123C !important;
+}
+html.light .hover\:bg-\[\#1B1B1E\]:hover,
+html.light .hover\:bg-\[\#1B1B1F\]:hover,
+html.light .hover\:bg-\[\#1E1E24\]:hover {
+  background-color: #F3F5F8 !important;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -73,13 +171,12 @@
   scrollbar-width: none;
 }
 
-/* Subtle dark scrollbar for desktop */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0C0C0D;
+  background: var(--bg-canvas);
 }
 ::-webkit-scrollbar-thumb {
   background: #2A2A30;
@@ -102,4 +199,16 @@
 
 .animate-fade-up {
   animation: fadeSlideUp 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Accessibility: respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

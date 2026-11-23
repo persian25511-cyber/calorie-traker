@@ -29,13 +29,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   private handleEmergencyBackup = () => {
     try {
+      const readKey = (v2: string, v1: string, fallback: string) =>
+        JSON.parse(window.localStorage.getItem(v2) ?? window.localStorage.getItem(v1) ?? fallback)
       const payload = {
         version: 2,
         exportedAt: new Date().toISOString(),
-        goals: JSON.parse(window.localStorage.getItem('kalorishomar_v1_goals') ?? 'null'),
-        foods: JSON.parse(window.localStorage.getItem('kalorishomar_v1_foods') ?? '[]'),
-        entries: JSON.parse(window.localStorage.getItem('kalorishomar_v1_entries') ?? '[]'),
-        waterByDate: JSON.parse(window.localStorage.getItem('kalorishomar_v1_water') ?? '{}'),
+        goals: readKey('kalorishomar_v2_goals', 'kalorishomar_v1_goals', 'null'),
+        foods: readKey('kalorishomar_v2_foods', 'kalorishomar_v1_foods', '[]'),
+        entries: readKey('kalorishomar_v2_entries', 'kalorishomar_v1_entries', '[]'),
+        waterByDate: readKey('kalorishomar_v2_water', 'kalorishomar_v1_water', '{}'),
+        weights: JSON.parse(window.localStorage.getItem('kalorishomar_v2_weights') ?? '[]'),
+        templates: JSON.parse(window.localStorage.getItem('kalorishomar_v2_templates') ?? '[]'),
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: 'application/json;charset=utf-8',

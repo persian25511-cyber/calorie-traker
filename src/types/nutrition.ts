@@ -10,6 +10,8 @@ export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
 export type AppTab = 'home' | 'trends' | 'foods' | 'settings'
 
+export type ThemeMode = 'dark' | 'light'
+
 export interface MacroValues {
   kcal: number
   protein: number
@@ -35,6 +37,7 @@ export interface FoodItem {
   defaultUnit: string
   units: FoodUnit[]
   isCustom?: boolean
+  isRecipe?: boolean
 }
 
 export interface ParsedFoodItem {
@@ -50,6 +53,10 @@ export interface ParsedFoodItem {
   fat: number
   rawSegment: string
   confidence: number
+  /** True when user typed a generic term (e.g. "برنج", "نان", "ماست") or fuzzy low-confidence match */
+  isAmbiguous?: boolean
+  /** Alternative candidate foods for quick 1-tap disambiguation */
+  alternatives?: FoodItem[]
 }
 
 export interface ParseResult {
@@ -74,6 +81,32 @@ export interface LoggedFoodEntry {
   sourceText?: string
 }
 
+export interface WeightEntry {
+  dateKey: string // Local YYYY-MM-DD
+  weightKg: number
+  updatedAt: number
+}
+
+export interface MealTemplateItem {
+  foodId: string
+  foodName: string
+  quantity: number
+  unit: string
+  totalGrams: number
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+export interface MealTemplate {
+  id: string
+  name: string
+  mealType: MealType
+  items: MealTemplateItem[]
+  createdAt: number
+}
+
 export interface UserGoals {
   dailyKcal: number
   proteinGrams: number
@@ -89,6 +122,8 @@ export interface AppBackupData {
   foods: FoodItem[]
   entries: LoggedFoodEntry[]
   waterByDate?: Record<string, number>
+  weights?: WeightEntry[]
+  templates?: MealTemplate[]
 }
 
 export const MEAL_TYPE_LABELS: Record<MealType, string> = {

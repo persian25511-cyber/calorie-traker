@@ -1,15 +1,19 @@
 import {
+  AlertTriangle,
   BarChart3,
   BookOpen,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Download,
   Flame,
   Home,
   RefreshCw,
   RotateCcw,
   Settings,
+  ShieldAlert,
   WifiOff,
+  X,
 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { DailySummaryCard } from './components/DailySummaryCard'
@@ -25,6 +29,7 @@ import {
   type FoodItem,
   type LoggedFoodEntry,
   type MacroValues,
+  type MealTemplate,
   type MealType,
   type ParsedFoodItem,
 } from './types/nutrition'
@@ -45,7 +50,7 @@ const WeeklyTrendsTab = lazy(() =>
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'ثبت روزانه', icon: Home },
-  { id: 'trends', label: 'روند هفتگی', icon: BarChart3 },
+  { id: 'trends', label: 'روند و وزن', icon: BarChart3 },
   { id: 'foods', label: 'بانک غذاها', icon: BookOpen },
   { id: 'settings', label: 'تنظیمات', icon: Settings },
 ]
@@ -61,12 +66,26 @@ export function App() {
     entries,
     goals,
     waterByDate,
+    weights,
+    templates,
+    theme,
+    lastBackupAt,
+    storageError,
+    persistenceState,
+    shouldRemindBackup,
+    setTheme,
+    dismissStorageError,
     logParsedItems,
     deleteEntry,
     restoreEntry,
     updateEntry,
     repeatEntries,
     adjustWater,
+    upsertWeight,
+    deleteWeight,
+    saveMealTemplate,
+    deleteMealTemplate,
+    applyMealTemplate,
     addFood,
     updateFood,
     deleteFood,
@@ -74,6 +93,7 @@ export function App() {
     updateGoals,
     clearAllEntries,
     exportBackupJson,
+    exportEntriesCsv,
     importBackupJson,
   } = useNutritionStore()
 
@@ -85,6 +105,7 @@ export function App() {
   const [quickInput, setQuickInput] = useState('')
   const [mealType, setMealType] = useState<MealType>(() => getDefaultMealTypeForHour())
   const [prefillNewFoodName, setPrefillNewFoodName] = useState<string | null>(null)
+  const [backupReminderDismissed, setBackupReminderDismissed] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimerRef = useRef<number | null>(null)
 
@@ -93,10 +114,13 @@ export function App() {
       window.clearTimeout(toastTimerRef.current)
     }
     setToast({ message, undoEntry })
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null)
-      toastTimerRef.current = null
-    }, undoEntry ? 4500 : 2800)
+    toastTimerRef.current = window.setTimeout(
+      () => {
+        setToast(null)
+        toastTimerRef.current = null
+      },
+      undoEntry ? 4500 : 2800,
+    )
   }, [])
 
   const isSelectedToday = selectedDateKey === todayKey
@@ -143,6 +167,20 @@ export function App() {
   const selectedWaterGlasses = waterByDate[selectedDateKey] ?? 0
   const streakDays = useMemo(() => computeLoggingStreak(entries, todayKey), [entries, todayKey])
 
+  const handleQuickDownloadBackup = useCallback(() => {
+    const json = exportBackupJson()
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `kalorishomar-backup-${getLocalDateKey()}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    showToast('فایل پشتیبان JSON با موفقیت دانلود شد')
+  }, [exportBackupJson, showToast])
+
   const handleSubmitQuickMeal = useCallback(
     (items: ParsedFoodItem[], chosenMealType: MealType, sourceText: string) => {
       const created = logParsedItems(items, chosenMealType, selectedDateKey, sourceText)
@@ -183,6 +221,23 @@ export function App() {
       )
     },
     [repeatEntries, selectedDateKey, showToast],
+  )
+
+  const handleSaveTemplate = useCallback(
+    (name: string, targetMealType: MealType, items: LoggedFoodEntry[]) => {
+      saveMealTemplate(name, targetMealType, items)
+      showToast(`«${name}» به وعده‌های منتخب اضافه شد`)
+    },
+    [saveMealTemplate, showToast],
+  )
+
+  const handleApplyTemplate = useCallback(
+    (template: MealTemplate) => {
+      const created = applyMealTemplate(template, selectedDateKey, mealType)
+      const totalKcal = created.reduce((sum, item) => sum + item.kcal, 0)
+      showToast(`«${template.name}» ثبت شد (${formatFaNumber(totalKcal)} کالری)`)
+    },
+    [applyMealTemplate, mealType, selectedDateKey, showToast],
   )
 
   const handleCopyDailyReport = useCallback(async (): Promise<boolean> => {
@@ -268,7 +323,39 @@ export function App() {
 
   return (
     <div dir="rtl" className="min-h-dvh bg-[#0C0C0D] text-[#FAFAFA] flex flex-col">
-      {/* PWA Update Available Banner */}
+      {/* Visible Storage Quota / Persistence Error Banner (NEVER silently swallow errors) */}
+      {storageError && (
+        <div
+          role="alert"
+          data-testid="storage-error-banner"
+          className="bg-rose-500/15 border-b border-rose-500/30 px-4 py-2.5 text-xs flex flex-wrap items-center justify-center gap-3"
+        >
+          <div className="flex items-center gap-2 text-rose-200">
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{storageError}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleQuickDownloadBackup}
+              className="inline-flex items-center gap-1 rounded-lg bg-rose-500 text-white font-bold px-2.5 py-1 text-[11px]"
+            >
+              <Download className="w-3 h-3" />
+              <span>دانلود پشتیبان فوری</span>
+            </button>
+            <button
+              type="button"
+              onClick={dismissStorageError}
+              aria-label="بستن هشدار حافظه"
+              className="text-rose-200 hover:text-white p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* User-Controlled PWA Update Available Banner (never reloads mid-typing) */}
       {pwaStatus.hasUpdate && (
         <div className="bg-amber-500/15 border-b border-amber-500/25 px-4 py-2 text-xs flex items-center justify-center gap-3">
           <span className="text-amber-200">نسخه جدید کالری‌شمار روزمره آماده است.</span>
@@ -279,6 +366,34 @@ export function App() {
           >
             <RefreshCw className="w-3 h-3" />
             <span>به‌روزرسانی</span>
+          </button>
+        </div>
+      )}
+
+      {/* Gentle Weekly Backup Reminder Banner */}
+      {shouldRemindBackup && !backupReminderDismissed && !storageError && (
+        <div
+          data-testid="weekly-backup-reminder"
+          className="bg-sky-500/10 border-b border-sky-500/20 px-4 py-2 text-xs flex flex-wrap items-center justify-center gap-2.5"
+        >
+          <span className="text-zinc-200">
+            داده‌ها فقط روی این دستگاه ذخیره می‌شوند؛ یادآوری پشتیبان‌گیری هفتگی:
+          </span>
+          <button
+            type="button"
+            onClick={handleQuickDownloadBackup}
+            className="inline-flex items-center gap-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-semibold px-2.5 py-1 text-[11px]"
+          >
+            <Download className="w-3 h-3" />
+            <span>دانلود پشتیبان JSON</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackupReminderDismissed(true)}
+            aria-label="یادآوری بعدی"
+            className="text-zinc-400 hover:text-zinc-200 p-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
@@ -376,7 +491,7 @@ export function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 pt-4 pb-28 md:pb-10">
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 pt-4 pb-28 md:pb-8">
         {activeTab === 'home' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* Primary Column: Instant Quick Entry FIRST, then Today's Meals */}
@@ -384,12 +499,15 @@ export function App() {
               <QuickEntryBar
                 foods={foods}
                 recentEntries={entries}
+                templates={templates}
                 totalLoggedCount={entries.length}
                 inputText={quickInput}
                 onInputTextChange={setQuickInput}
                 mealType={mealType}
                 onMealTypeChange={setMealType}
                 onSubmitItems={handleSubmitQuickMeal}
+                onApplyTemplate={handleApplyTemplate}
+                onDeleteTemplate={deleteMealTemplate}
                 onRequestAddCustomFood={handleRequestAddCustomFood}
               />
 
@@ -407,12 +525,14 @@ export function App() {
               </div>
 
               <TodayMealsList
+                foods={foods}
                 dayEntries={dayEntries}
                 previousDayEntries={previousDayEntries}
                 previousDayLabel={previousDayLabel}
                 onDeleteEntry={handleDeleteEntry}
                 onUpdateEntry={updateEntry}
                 onRepeatEntries={handleRepeatEntries}
+                onSaveTemplate={handleSaveTemplate}
               />
             </div>
 
@@ -435,15 +555,21 @@ export function App() {
           <Suspense
             fallback={
               <div className="card-surface rounded-2xl p-8 text-center text-xs text-zinc-400">
-                در حال بارگذاری نمودار هفتگی...
+                در حال بارگذاری نمودار روند و وزن...
               </div>
             }
           >
             <WeeklyTrendsTab
               entries={entries}
               goals={goals}
+              weights={weights}
               streakDays={streakDays}
               onSelectDate={handleSelectDateFromTrends}
+              onUpsertWeight={(dk, w) => {
+                upsertWeight(dk, w)
+                showToast(`وزن ${formatFaNumber(w, 1)} کیلوگرم ثبت شد`)
+              }}
+              onDeleteWeight={deleteWeight}
             />
           </Suspense>
         )}
@@ -465,12 +591,17 @@ export function App() {
             goals={goals}
             foodsCount={foods.length}
             entriesCount={entries.length}
+            theme={theme}
+            lastBackupAt={lastBackupAt}
+            persistenceState={persistenceState}
             pwaStatus={pwaStatus}
+            onThemeChange={setTheme}
             onUpdateGoals={(next) => {
               updateGoals(next)
               showToast('اهداف روزانه به‌روزرسانی شد')
             }}
             onExportJson={exportBackupJson}
+            onExportCsv={exportEntriesCsv}
             onImportJson={importBackupJson}
             onResetDefaultFoods={resetDefaultFoods}
             onClearAllEntries={() => {
@@ -479,6 +610,24 @@ export function App() {
             }}
           />
         )}
+
+        {/* Concise Educational & Local-Privacy Footer */}
+        <footer className="mt-8 pt-4 border-t border-[#1E1E22] flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+            <span>
+              ارزش‌های غذایی تقریبی هستند · ابزار آموزشی (جایگزین پزشک نیست) · داده‌ها فقط روی
+              دستگاه شما می‌ماند.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            className="text-emerald-400 hover:underline font-medium shrink-0"
+          >
+            حریم خصوصی، منابع و مجوز MIT
+          </button>
+        </footer>
       </main>
 
       {/* Actionable Toast Notification (with Undo on delete) */}
@@ -522,7 +671,7 @@ export function App() {
                 data-nav-tab={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex flex-col items-center justify-center gap-1 rounded-xl transition-colors ${
-                  active ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'
+                  active ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 <div

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_IRANIAN_FOODS } from '../data/iranianFoods'
 import type { FoodItem } from '../types/nutrition'
 import {
+  extractCleanFoodName,
   normalizePersian,
   parsePersianFoodInput,
   toCompactKey,
@@ -272,8 +273,23 @@ describe('Persian Natural Language Food Parser', () => {
     expect(result.items[3].food.id).toBe('cafe-latte')
   })
 
-  it('ensures pre-seeded Iranian food database has at least 70 items with valid macros', () => {
-    expect(DEFAULT_IRANIAN_FOODS.length).toBeGreaterThanOrEqual(70)
+  it('flags ambiguous generic terms like "برنج" with concrete alternatives for 1-tap disambiguation', () => {
+    const result = parsePersianFoodInput('دو کفگیر برنج', DEFAULT_IRANIAN_FOODS)
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0].isAmbiguous).toBe(true)
+    const altIds = (result.items[0].alternatives ?? []).map((f) => f.id)
+    expect(altIds).toContain('berenj-abkesh')
+  })
+
+  it('strips quantity and unit cleanly for 1-click custom food creation from unmatched segments', () => {
+    expect(extractCleanFoodName('دو کاسه غذای محلی ناشناخته', DEFAULT_IRANIAN_FOODS)).toBe(
+      'غذای محلی ناشناخته',
+    )
+    expect(extractCleanFoodName('150 گرم خوراک مخصوص', DEFAULT_IRANIAN_FOODS)).toBe('خوراک مخصوص')
+  })
+
+  it('ensures pre-seeded Iranian food database has at least 300 items with valid macros', () => {
+    expect(DEFAULT_IRANIAN_FOODS.length).toBeGreaterThanOrEqual(300)
     for (const food of DEFAULT_IRANIAN_FOODS) {
       expect(food.units.length).toBeGreaterThanOrEqual(2)
       expect(food.per100g.kcal).toBeGreaterThan(0)

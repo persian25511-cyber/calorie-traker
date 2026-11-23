@@ -1,4 +1,4 @@
-import { Check, Minus, Plus, Sparkles, UtensilsCrossed, X } from 'lucide-react'
+import { AlertCircle, Bookmark, Check, Minus, Plus, Sparkles, UtensilsCrossed, X } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { QUICK_MEAL_SUGGESTIONS } from '../data/iranianFoods'
 import {
@@ -6,29 +6,40 @@ import {
   MEAL_TYPE_ORDER,
   type FoodItem,
   type LoggedFoodEntry,
+  type MealTemplate,
   type MealType,
   type ParsedFoodItem,
 } from '../types/nutrition'
-import { calculateFoodMacros, parsePersianFoodInput } from '../utils/persianFoodParser'
+import {
+  calculateFoodMacros,
+  extractCleanFoodName,
+  parsePersianFoodInput,
+  resolveFoodUnit,
+} from '../utils/persianFoodParser'
 import { formatFaNumber, formatQuantityFa } from '../utils/persianFormat'
 
 interface QuickEntryBarProps {
   foods: FoodItem[]
   recentEntries: LoggedFoodEntry[]
+  templates: MealTemplate[]
   totalLoggedCount: number
   inputText: string
   onInputTextChange: (next: string) => void
   mealType: MealType
   onMealTypeChange: (mealType: MealType) => void
   onSubmitItems: (items: ParsedFoodItem[], mealType: MealType, sourceText: string) => void
+  onApplyTemplate: (template: MealTemplate) => void
+  onDeleteTemplate: (templateId: string) => void
   onRequestAddCustomFood: (prefillName: string) => void
 }
 
 interface ChipOverride {
   quantity: number
+  food?: FoodItem
   unit?: string
   gramsPerUnit?: number
   removed?: boolean
+  disambiguated?: boolean
 }
 
 const EMPTY_OVERRIDES: Record<string, ChipOverride> = {}
@@ -37,12 +48,15 @@ const WELCOME_DISMISSED_KEY = 'kalorishomar_v1_welcome_dismissed'
 export function QuickEntryBar({
   foods,
   recentEntries,
+  templates,
   totalLoggedCount,
   inputText,
   onInputTextChange,
   mealType,
   onMealTypeChange,
   onSubmitItems,
+  onApplyTemplate,
+  onDeleteTemplate,
   onRequestAddCustomFood,
 }: QuickEntryBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -72,18 +86,27 @@ export function QuickEntryBar({
       const override = activeOverrides[item.id]
       if (override?.removed) continue
 
+      const food = override?.food ?? item.food
       const qty = override ? override.quantity : item.quantity
       const unit = override?.unit ?? item.unit
       const gramsPerUnit = override?.gramsPerUnit ?? item.gramsPerUnit
 
-      if (qty !== item.quantity || unit !== item.unit || gramsPerUnit !== item.gramsPerUnit) {
-        const recalculated = calculateFoodMacros(item.food, qty, gramsPerUnit)
+      if (
+        food.id !== item.food.id ||
+        qty !== item.quantity ||
+        unit !== item.unit ||
+        gramsPerUnit !== item.gramsPerUnit
+      ) {
+        const recalculated = calculateFoodMacros(food, qty, gramsPerUnit)
         result.push({
           ...item,
+          food,
           quantity: qty,
           unit,
           gramsPerUnit,
           ...recalculated,
+          isAmbiguous: override?.disambiguated ? false : item.isAmbiguous,
+          alternatives: override?.disambiguated ? [] : item.alternatives,
         })
       } else {
         result.push(item)
@@ -104,7 +127,6 @@ export function QuickEntryBar({
     )
   }, [previewItems])
 
-  // Merge user's recent logged combos with curated Iranian combos
   const suggestionPills = useMemo(() => {
     const seen = new Set<string>()
     const list: string[] = []
@@ -142,6 +164,7 @@ export function QuickEntryBar({
           ...base,
           [item.id]: {
             ...base[item.id],
+            food: item.food,
             quantity: nextQty,
             unit: item.unit,
             gramsPerUnit: item.gramsPerUnit,
@@ -175,9 +198,30 @@ export function QuickEntryBar({
           ...base,
           [item.id]: {
             ...base[item.id],
+            food: item.food,
             quantity: nextQty,
             unit: targetUnit.name,
             gramsPerUnit: targetUnit.grams,
+          },
+        },
+      }
+    })
+  }
+
+  const handlePickAlternativeFood = (item: ParsedFoodItem, altFood: FoodItem) => {
+    const resolved = resolveFoodUnit(altFood, item.unit)
+    setOverridesByInput((prev) => {
+      const base = prev.text === inputText ? prev.map : {}
+      return {
+        text: inputText,
+        map: {
+          ...base,
+          [item.id]: {
+            food: altFood,
+            quantity: item.quantity,
+            unit: resolved.unit,
+            gramsPerUnit: resolved.gramsPerUnit,
+            disambiguated: true,
           },
         },
       }
@@ -243,7 +287,7 @@ export function QuickEntryBar({
           <div>
             <h2 className="text-sm font-semibold text-zinc-100 leading-tight">ثبت سریع غذا</h2>
             <p className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-              به زبان روزمره بنویسید؛ محاسبه آنی انجام می‌شود
+              به زبان روزمره بنویسید؛ محاسبه تقریبی آنی انجام می‌شود
             </p>
           </div>
         </div>
@@ -346,76 +390,107 @@ export function QuickEntryBar({
                 <div
                   key={item.id}
                   data-testid="parsed-food-chip"
-                  className="card-elevated rounded-xl px-3 py-2 flex items-center gap-2.5 w-full sm:w-auto max-w-full"
+                  className="card-elevated rounded-xl px-3 py-2 w-full sm:w-auto max-w-full space-y-2"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs sm:text-sm font-semibold text-zinc-100 truncate">
-                        {item.food.name}
-                      </span>
-                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-300 tabular-nums-fa">
-                        {formatFaNumber(item.kcal)} کالری
-                      </span>
+                  <div className="flex items-center gap-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs sm:text-sm font-semibold text-zinc-100 truncate">
+                          {item.food.name}
+                        </span>
+                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-300 tabular-nums-fa">
+                          {formatFaNumber(item.kcal)} کالری
+                        </span>
+                        {item.isAmbiguous && (
+                          <span
+                            data-testid="ambiguous-match-badge"
+                            className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300"
+                          >
+                            <AlertCircle className="w-3 h-3" />
+                            <span>تطبیق کلی</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
+                        <span className="text-zinc-200 font-semibold">
+                          {formatQuantityFa(item.quantity)}
+                        </span>
+                        <select
+                          aria-label={`واحد ${item.food.name}`}
+                          data-testid="chip-unit-select"
+                          value={item.unit}
+                          onChange={(e) => handleChangeUnit(item, e.target.value)}
+                          className="rounded-md bg-[#27272E] border border-[#35353F] text-zinc-200 text-[11px] px-1.5 py-0.5 focus:outline-none focus:border-emerald-500/70"
+                        >
+                          {unitOptions.map((u) => (
+                            <option key={u.name} value={u.name}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-zinc-500">•</span>
+                        <span>{formatFaNumber(item.totalGrams)} گرم</span>
+                        <span className="text-zinc-500 hidden sm:inline">•</span>
+                        <span className="hidden sm:inline text-sky-400/90">
+                          پ {formatFaNumber(item.protein, 1)}
+                        </span>
+                        <span className="hidden sm:inline text-amber-400/90">
+                          ک {formatFaNumber(item.carbs, 1)}
+                        </span>
+                        <span className="hidden sm:inline text-rose-400/90">
+                          چ {formatFaNumber(item.fat, 1)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
-                      <span className="text-zinc-200 font-semibold">
-                        {formatQuantityFa(item.quantity)}
-                      </span>
-                      <select
-                        aria-label={`واحد ${item.food.name}`}
-                        data-testid="chip-unit-select"
-                        value={item.unit}
-                        onChange={(e) => handleChangeUnit(item, e.target.value)}
-                        className="rounded-md bg-[#27272E] border border-[#35353F] text-zinc-200 text-[11px] px-1.5 py-0.5 focus:outline-none focus:border-emerald-500/70"
+
+                    {/* Quantity +/- and Remove Controls */}
+                    <div className="flex items-center gap-1 shrink-0 mr-auto">
+                      <button
+                        type="button"
+                        aria-label={`افزایش مقدار ${item.food.name}`}
+                        onClick={() => handleAdjustQuantity(item, 1)}
+                        className="w-7 h-7 rounded-lg bg-[#27272D] hover:bg-[#32323A] text-zinc-200 flex items-center justify-center transition-colors"
                       >
-                        {unitOptions.map((u) => (
-                          <option key={u.name} value={u.name}>
-                            {u.name}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-zinc-600">•</span>
-                      <span>{formatFaNumber(item.totalGrams)} گرم</span>
-                      <span className="text-zinc-600 hidden sm:inline">•</span>
-                      <span className="hidden sm:inline text-sky-400/90">
-                        پ {formatFaNumber(item.protein, 1)}
-                      </span>
-                      <span className="hidden sm:inline text-amber-400/90">
-                        ک {formatFaNumber(item.carbs, 1)}
-                      </span>
-                      <span className="hidden sm:inline text-rose-400/90">
-                        چ {formatFaNumber(item.fat, 1)}
-                      </span>
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`کاهش مقدار ${item.food.name}`}
+                        onClick={() => handleAdjustQuantity(item, -1)}
+                        className="w-7 h-7 rounded-lg bg-[#27272D] hover:bg-[#32323A] text-zinc-200 flex items-center justify-center transition-colors"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`حذف ${item.food.name}`}
+                        onClick={() => handleRemoveChip(item)}
+                        className="w-7 h-7 rounded-lg hover:bg-rose-500/15 text-zinc-400 hover:text-rose-400 flex items-center justify-center transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
 
-                  {/* Quantity +/- and Remove Controls */}
-                  <div className="flex items-center gap-1 shrink-0 mr-auto">
-                    <button
-                      type="button"
-                      aria-label={`افزایش مقدار ${item.food.name}`}
-                      onClick={() => handleAdjustQuantity(item, 1)}
-                      className="w-7 h-7 rounded-lg bg-[#27272D] hover:bg-[#32323A] text-zinc-200 flex items-center justify-center transition-colors"
+                  {/* Low-confidence / Ambiguous disambiguation alternatives */}
+                  {item.isAmbiguous && item.alternatives && item.alternatives.length > 0 && (
+                    <div
+                      data-testid="ambiguous-alternatives"
+                      className="pt-1.5 border-t border-[#2A2A32] flex flex-wrap items-center gap-1.5 text-[11px]"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`کاهش مقدار ${item.food.name}`}
-                      onClick={() => handleAdjustQuantity(item, -1)}
-                      className="w-7 h-7 rounded-lg bg-[#27272D] hover:bg-[#32323A] text-zinc-200 flex items-center justify-center transition-colors"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`حذف ${item.food.name}`}
-                      onClick={() => handleRemoveChip(item)}
-                      className="w-7 h-7 rounded-lg hover:bg-rose-500/15 text-zinc-400 hover:text-rose-400 flex items-center justify-center transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                      <span className="text-amber-300/90">منظورتان کدام بود؟</span>
+                      {item.alternatives.map((alt) => (
+                        <button
+                          key={alt.id}
+                          type="button"
+                          onClick={() => handlePickAlternativeFood(item, alt)}
+                          className="rounded-lg bg-[#27272E] hover:bg-emerald-500/18 border border-[#35353F] px-2 py-0.5 text-zinc-200 hover:text-emerald-300 transition-colors"
+                        >
+                          {alt.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -423,14 +498,14 @@ export function QuickEntryBar({
 
           {/* Summary & Submit Action Row */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#26262A]">
-            <div className="flex items-center gap-3 text-xs tabular-nums-fa">
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums-fa">
               <span className="text-zinc-400">
-                جمع ({formatFaNumber(previewItems.length)} مورد):
+                جمع تقریبی ({formatFaNumber(previewItems.length)} مورد):
               </span>
               <span className="font-bold text-emerald-400 text-sm">
                 {formatFaNumber(totalPreview.kcal)} کالری
               </span>
-              <span className="hidden sm:inline text-zinc-500">
+              <span className="hidden sm:inline text-zinc-400">
                 پ {formatFaNumber(totalPreview.protein, 1)}گ · ک{' '}
                 {formatFaNumber(totalPreview.carbs, 1)}گ · چ{' '}
                 {formatFaNumber(totalPreview.fat, 1)}گ
@@ -450,21 +525,69 @@ export function QuickEntryBar({
         </div>
       )}
 
-      {/* Unmatched segments gentle hint */}
+      {/* Unmatched segments: 1-click Add as New Food (with quantity/unit stripped) */}
       {parseResult.unmatchedSegments.length > 0 && inputText.trim().length >= 2 && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+        <div
+          data-testid="unmatched-segments-box"
+          className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-zinc-400"
+        >
           <span>تشخیص داده نشد:</span>
-          {parseResult.unmatchedSegments.map((seg) => (
-            <button
-              key={seg}
-              type="button"
-              onClick={() => onRequestAddCustomFood(seg)}
-              className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#27272D] border border-[#2E2E35] px-2.5 py-1 text-zinc-300 transition-colors"
-            >
-              <span>«{seg}»</span>
-              <span className="text-emerald-400 font-medium">+ افزودن به بانک غذا</span>
-            </button>
-          ))}
+          {parseResult.unmatchedSegments.map((seg) => {
+            const cleanName = extractCleanFoodName(seg, foods)
+            return (
+              <button
+                key={seg}
+                type="button"
+                data-testid="add-unmatched-food-btn"
+                onClick={() => onRequestAddCustomFood(cleanName)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E1E22] hover:bg-[#27272D] border border-[#2E2E35] px-2.5 py-1 text-zinc-200 transition-colors"
+              >
+                <span>«{cleanName}»</span>
+                <span className="text-emerald-400 font-semibold">+ افزودن به‌عنوان غذای جدید</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Saved Favorite Meal Templates (1-tap log) */}
+      {templates.length > 0 && inputText.trim().length === 0 && (
+        <div className="mt-3 pt-3 border-t border-[#222226]" data-testid="favorite-templates-bar">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mb-2">
+            <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
+            <span>وعده‌های منتخب شما (ثبت تک‌کلیکی):</span>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+            {templates.map((tpl) => {
+              const totalKcal = tpl.items.reduce((sum, i) => sum + i.kcal, 0)
+              return (
+                <div
+                  key={tpl.id}
+                  className="shrink-0 inline-flex items-center rounded-full bg-emerald-500/10 border border-emerald-500/25 overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    data-testid="apply-template-btn"
+                    onClick={() => onApplyTemplate(tpl)}
+                    className="px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-500/15 transition-colors flex items-center gap-1.5"
+                  >
+                    <span className="font-semibold">{tpl.name}</span>
+                    <span className="text-[11px] opacity-80 tabular-nums-fa">
+                      ({formatFaNumber(totalKcal)} ک)
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`حذف قالب ${tpl.name}`}
+                    onClick={() => onDeleteTemplate(tpl.id)}
+                    className="pl-2 pr-1 py-1.5 text-zinc-400 hover:text-rose-400 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

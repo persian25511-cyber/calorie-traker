@@ -1,36 +1,49 @@
 import {
+  AlertTriangle,
   Calculator,
   Check,
   ChevronDown,
   Download,
+  FileSpreadsheet,
+  Lock,
+  Moon,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
   Smartphone,
+  Sun,
   Target,
   Trash2,
   Upload,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import type { UserGoals } from '../types/nutrition'
+import { NUTRITION_DATA_SOURCES } from '../data/iranianFoods'
+import type { ThemeMode, UserGoals } from '../types/nutrition'
 import {
   ACTIVITY_LEVEL_LABELS,
+  HEALTH_DISCLAIMERS,
+  MIN_CALCULATOR_AGE,
   WEIGHT_GOAL_LABELS,
-  calculateRecommendedGoals,
+  evaluateTdeeGoals,
   type ActivityLevel,
   type BiologicalSex,
   type WeightGoal,
 } from '../utils/calorieCalculator'
-import { formatFaNumber, getLocalDateKey, toAsciiDigits } from '../utils/persianFormat'
+import { formatFaNumber, formatJalaliDate, getLocalDateKey, toAsciiDigits } from '../utils/persianFormat'
 import type { PwaStatus } from '../utils/pwa'
 
 interface SettingsTabProps {
   goals: UserGoals
   foodsCount: number
   entriesCount: number
+  theme: ThemeMode
+  lastBackupAt: number | null
+  persistenceState: 'checking' | 'persisted' | 'not_persisted' | 'unsupported'
   pwaStatus: PwaStatus
+  onThemeChange: (next: ThemeMode) => void
   onUpdateGoals: (goals: UserGoals) => void
   onExportJson: () => string
+  onExportCsv: () => string
   onImportJson: (
     raw: string,
   ) => { ok: boolean; error?: string; stats?: { foods: number; entries: number } }
@@ -67,13 +80,25 @@ function parseIntInput(val: string, fallback: number): number {
   return Number.isFinite(num) && num > 0 ? Math.round(num) : fallback
 }
 
+function parseRawAge(val: string): number {
+  const cleaned = toAsciiDigits(val).trim()
+  if (!cleaned) return 0
+  const num = Number(cleaned)
+  return Number.isFinite(num) ? Math.round(num) : 0
+}
+
 export function SettingsTab({
   goals,
   foodsCount,
   entriesCount,
+  theme,
+  lastBackupAt,
+  persistenceState,
   pwaStatus,
+  onThemeChange,
   onUpdateGoals,
   onExportJson,
+  onExportCsv,
   onImportJson,
   onResetDefaultFoods,
   onClearAllEntries,
@@ -85,7 +110,7 @@ export function SettingsTab({
   const [waterInput, setWaterInput] = useState(String(goals.waterGoalGlasses))
   const [savedNotice, setSavedNotice] = useState(false)
 
-  // Smart Persian TDEE Calculator state
+  // Smart Persian TDEE Calculator state (strictly 18+)
   const [calcOpen, setCalcOpen] = useState(false)
   const [sex, setSex] = useState<BiologicalSex>('male')
   const [age, setAge] = useState('30')
@@ -103,10 +128,10 @@ export function SettingsTab({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const tdeePreview = useMemo(() => {
-    return calculateRecommendedGoals({
+  const tdeeEvaluation = useMemo(() => {
+    return evaluateTdeeGoals({
       sex,
-      ageYears: parseIntInput(age, 30),
+      ageYears: parseRawAge(age),
       heightCm: parseIntInput(height, 175),
       weightKg: parseIntInput(weight, 75),
       activity,
@@ -136,20 +161,46 @@ export function SettingsTab({
     })
   }
 
-  const handleExport = () => {
-    const json = onExportJson()
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+  const triggerDownload = (content: string, mime: string, filename: string) => {
+    const blob = new Blob([content], { type: mime })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `kalorishomar-backup-${getLocalDateKey()}.json`
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+  }
+
+  const handleExportJson = () => {
+    triggerDownload(
+      onExportJson(),
+      'application/json;charset=utf-8',
+      `kalorishomar-backup-${getLocalDateKey()}.json`,
+    )
     setBackupMessage({
       type: 'success',
-      text: 'فایل پشتیبان با موفقیت دانلود شد.',
+      text: 'فایل پشتیبان کامل (JSON) با موفقیت دانلود شد.',
+    })
+  }
+
+  const handleExportCsv = () => {
+    if (entriesCount === 0) {
+      setBackupMessage({
+        type: 'error',
+        text: 'هنوز وعده‌ای برای خروجی CSV ثبت نشده است.',
+      })
+      return
+    }
+    triggerDownload(
+      onExportCsv(),
+      'text/csv;charset=utf-8',
+      `kalorishomar-meals-${getLocalDateKey()}.csv`,
+    )
+    setBackupMessage({
+      type: 'success',
+      text: 'فایل اکسل (CSV) وعده‌های شما با موفقیت دانلود شد.',
     })
   }
 
@@ -182,7 +233,7 @@ export function SettingsTab({
 
   return (
     <div className="space-y-4 animate-fade-up" data-testid="settings-tab">
-      {/* Smart Persian TDEE Goal Calculator */}
+      {/* Smart Persian TDEE Goal Calculator (Strictly 18+ with Health Disclaimers) */}
       <section className="card-surface rounded-2xl overflow-hidden">
         <button
           type="button"
@@ -195,11 +246,16 @@ export function SettingsTab({
               <Calculator className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-zinc-100">
-                محاسبه‌گر هوشمند کالری و درشت‌مغذی (TDEE)
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-bold text-zinc-100">
+                  محاسبه‌گر هوشمند کالری و درشت‌مغذی (TDEE)
+                </h2>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300">
+                  بزرگسالان +۱۸
+                </span>
+              </div>
               <p className="text-[11px] text-zinc-400 mt-0.5">
-                بر اساس قد، وزن، سن و سطح فعالیت هدف دقیق روزانه را محاسبه کنید
+                برآورد تقریبی نیاز روزانه بر پایه فرمول Mifflin-St Jeor (ابزار آموزشی)
               </p>
             </div>
           </div>
@@ -213,8 +269,21 @@ export function SettingsTab({
         {calcOpen && (
           <div
             data-testid="tdee-calculator-panel"
-            className="px-4 sm:px-5 pb-5 pt-2 border-t border-[#222227] space-y-4 animate-fade-up"
+            className="px-4 sm:px-5 pb-5 pt-3 border-t border-[#222227] space-y-4 animate-fade-up"
           >
+            {/* Mandatory Health Disclaimer & Special Groups Warning */}
+            <div
+              data-testid="health-disclaimer-banner"
+              className="rounded-xl bg-amber-500/8 border border-amber-500/25 p-3 text-xs space-y-1.5 leading-relaxed"
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>سلب مسئولیت سلامت و محدودیت سنی (+۱۸)</span>
+              </div>
+              <p className="text-zinc-300">{HEALTH_DISCLAIMERS.educationalNotice}</p>
+              <p className="text-zinc-400">{HEALTH_DISCLAIMERS.specialGroupsWarning}</p>
+            </div>
+
             {/* Sex + Body metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div>
@@ -247,7 +316,7 @@ export function SettingsTab({
 
               <div>
                 <label htmlFor="tdee-age-input" className="block text-[11px] text-zinc-400 mb-1.5">
-                  سن (سال)
+                  سن (حداقل {formatFaNumber(MIN_CALCULATOR_AGE)} سال)
                 </label>
                 <input
                   id="tdee-age-input"
@@ -338,48 +407,58 @@ export function SettingsTab({
               </div>
             </div>
 
-            {/* Live Calculation Output */}
-            <div className="card-elevated rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1 tabular-nums-fa">
-                <div className="text-xs text-zinc-400">
-                  پیشنهاد علمی برای شما (BMR: {formatFaNumber(tdeePreview.bmr)} · TDEE:{' '}
-                  {formatFaNumber(tdeePreview.tdee)}):
-                </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  <span
-                    data-testid="tdee-recommended-kcal"
-                    className="text-base font-extrabold text-emerald-400"
-                  >
-                    {formatFaNumber(tdeePreview.recommendedGoals.dailyKcal)} کالری
-                  </span>
-                  <span className="text-sky-400">
-                    پروتئین {formatFaNumber(tdeePreview.recommendedGoals.proteinGrams)}گ
-                  </span>
-                  <span className="text-amber-400">
-                    کربوهیدرات {formatFaNumber(tdeePreview.recommendedGoals.carbsGrams)}گ
-                  </span>
-                  <span className="text-rose-400">
-                    چربی {formatFaNumber(tdeePreview.recommendedGoals.fatGrams)}گ
-                  </span>
-                  <span className="text-cyan-400">
-                    آب {formatFaNumber(tdeePreview.recommendedGoals.waterGoalGlasses)} لیوان
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                id="apply-tdee-goals-btn"
-                onClick={() => {
-                  syncInputsAndSave(tdeePreview.recommendedGoals)
-                  setCalcOpen(false)
-                }}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#051B11] font-bold text-xs px-4 py-2.5 transition-colors"
+            {/* Strict 18+ Age Gate or Live Calculation Output */}
+            {!tdeeEvaluation.ok ? (
+              <div
+                data-testid="tdee-underage-block"
+                className="rounded-xl bg-rose-500/10 border border-rose-500/25 p-3.5 text-xs text-rose-300 leading-relaxed"
               >
-                <Check className="w-4 h-4 stroke-[2.5]" />
-                <span>اعمال به اهداف روزانه</span>
-              </button>
-            </div>
+                {tdeeEvaluation.error}
+              </div>
+            ) : (
+              <div className="card-elevated rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1 tabular-nums-fa">
+                  <div className="text-xs text-zinc-400">
+                    برآورد تقریبی برای شما (BMR: {formatFaNumber(tdeeEvaluation.result.bmr)} · TDEE:{' '}
+                    {formatFaNumber(tdeeEvaluation.result.tdee)}):
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <span
+                      data-testid="tdee-recommended-kcal"
+                      className="text-base font-extrabold text-emerald-400"
+                    >
+                      {formatFaNumber(tdeeEvaluation.result.recommendedGoals.dailyKcal)} کالری
+                    </span>
+                    <span className="text-sky-400">
+                      پروتئین {formatFaNumber(tdeeEvaluation.result.recommendedGoals.proteinGrams)}گ
+                    </span>
+                    <span className="text-amber-400">
+                      کربوهیدرات {formatFaNumber(tdeeEvaluation.result.recommendedGoals.carbsGrams)}گ
+                    </span>
+                    <span className="text-rose-400">
+                      چربی {formatFaNumber(tdeeEvaluation.result.recommendedGoals.fatGrams)}گ
+                    </span>
+                    <span className="text-cyan-400">
+                      آب {formatFaNumber(tdeeEvaluation.result.recommendedGoals.waterGoalGlasses)}{' '}
+                      لیوان
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="apply-tdee-goals-btn"
+                  onClick={() => {
+                    syncInputsAndSave(tdeeEvaluation.result.recommendedGoals)
+                    setCalcOpen(false)
+                  }}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#051B11] font-bold text-xs px-4 py-2.5 transition-colors"
+                >
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                  <span>اعمال به اهداف روزانه</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -398,7 +477,6 @@ export function SettingsTab({
           </div>
         </div>
 
-        {/* Presets */}
         <div className="grid grid-cols-3 gap-2 mb-4">
           {GOAL_PRESETS.map((p) => (
             <button
@@ -506,40 +584,106 @@ export function SettingsTab({
         </form>
       </section>
 
-      {/* Local-first Backup & Restore */}
-      <section className="card-surface rounded-2xl p-4 sm:p-5">
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-8 h-8 rounded-xl bg-sky-500/12 flex items-center justify-center text-sky-400">
-            <ShieldCheck className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-zinc-100">پشتیبان‌گیری و انتقال اطلاعات (JSON)</h2>
-            <p className="text-[11px] text-zinc-400 tabular-nums-fa">
-              تمام داده‌ها فقط در دستگاه شما ذخیره می‌شوند ({formatFaNumber(foodsCount)} غذا ·{' '}
-              {formatFaNumber(entriesCount)} وعده ثبت‌شده)
-            </p>
-          </div>
+      {/* Appearance Theme Switcher (Dark default + optional Light mode) */}
+      <section className="card-surface rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-zinc-100">ظاهر برنامه</h2>
+          <p className="text-[11px] text-zinc-400 mt-0.5">
+            حالت تاریک پیش‌فرض برای مطالعه راحت شبانه؛ حالت روشن برای نور روز
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
+        <div className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]">
+          <button
+            type="button"
+            id="theme-dark-btn"
+            onClick={() => onThemeChange('dark')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              theme === 'dark'
+                ? 'bg-emerald-500 text-[#051B11] font-bold'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Moon className="w-3.5 h-3.5" />
+            <span>تاریک</span>
+          </button>
+          <button
+            type="button"
+            id="theme-light-btn"
+            onClick={() => onThemeChange('light')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              theme === 'light'
+                ? 'bg-emerald-500 text-[#051B11] font-bold'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Sun className="w-3.5 h-3.5" />
+            <span>روشن</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Local-first Backup (JSON + CSV) & Storage Persistence Status */}
+      <section className="card-surface rounded-2xl p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-sky-500/12 flex items-center justify-center text-sky-400">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-zinc-100">پشتیبان‌گیری و خروجی داده‌ها</h2>
+              <p className="text-[11px] text-zinc-400 tabular-nums-fa">
+                {formatFaNumber(foodsCount)} غذا · {formatFaNumber(entriesCount)} وعده ثبت‌شده
+                {lastBackupAt
+                  ? ` · آخرین پشتیبان: ${formatJalaliDate(new Date(lastBackupAt), 'short')}`
+                  : ' · هنوز پشتیبان نگرفته‌اید'}
+              </p>
+            </div>
+          </div>
+
+          <span
+            data-testid="storage-persistence-badge"
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+              persistenceState === 'persisted'
+                ? 'bg-emerald-500/12 text-emerald-300'
+                : 'bg-[#1E1E22] text-zinc-400'
+            }`}
+          >
+            {persistenceState === 'persisted'
+              ? 'حافظه پایدار مرورگر فعال'
+              : 'پشتیبان‌گیری هفتگی توصیه می‌شود'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
           <button
             type="button"
             id="export-json-btn"
-            onClick={handleExport}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-4 py-3 text-xs sm:text-sm font-semibold text-zinc-100 transition-colors"
+            onClick={handleExportJson}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
           >
             <Download className="w-4 h-4 text-emerald-400" />
-            <span>خروجی فایل پشتیبان (JSON)</span>
+            <span>خروجی پشتیبان (JSON)</span>
+          </button>
+
+          <button
+            type="button"
+            id="export-csv-btn"
+            onClick={handleExportCsv}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-amber-400" />
+            <span>خروجی اکسل (CSV)</span>
           </button>
 
           <button
             type="button"
             id="import-json-btn"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-4 py-3 text-xs sm:text-sm font-semibold text-zinc-100 transition-colors"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
           >
             <Upload className="w-4 h-4 text-sky-400" />
-            <span>بازیابی از فایل پشتیبان</span>
+            <span>بازیابی از JSON</span>
           </button>
 
           <input
@@ -581,13 +725,13 @@ export function SettingsTab({
                       : 'bg-amber-500/15 text-amber-300'
                   }`}
                 >
-                  {pwaStatus.isOnline ? 'آماده اجرا بدون اینترنت' : 'در حال اجرا در حالت آفلاین'}
+                  {pwaStatus.isOnline ? 'فونت و اجرا ۱۰۰٪ آفلاین' : 'در حال اجرا در حالت آفلاین'}
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
                 {pwaStatus.isInstalled
-                  ? 'برنامه با موفقیت روی دستگاه شما نصب شده است و بدون اینترنت نیز کار می‌کند.'
-                  : 'کالری‌شمار روزمره کاملاً آفلاین و سبک است. در آیفون از منوی Share گزینه Add to Home Screen و در اندروید یا کروم دکمه نصب را بزنید.'}
+                  ? 'برنامه روی دستگاه شما نصب شده است و بدون نیاز به اینترنت یا سرور خارجی کار می‌کند.'
+                  : 'فونت وزیرمتن و تمام داده‌های برنامه به‌صورت محلی میزبانی می‌شوند. در آیفون از منوی Share گزینه Add to Home Screen و در اندروید یا کروم دکمه نصب را بزنید.'}
               </p>
             </div>
           </div>
@@ -614,6 +758,46 @@ export function SettingsTab({
                 <span>نصب اپلیکیشن</span>
               </button>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* Privacy, Health Disclaimer, Nutrition Sources & MIT License */}
+      <section
+        id="privacy-and-health-section"
+        data-testid="privacy-and-health-card"
+        className="card-surface rounded-2xl p-4 sm:p-5 space-y-3"
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-400">
+            <Lock className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-zinc-100">
+              حریم خصوصی، منابع علمی و مجوز انتشار
+            </h2>
+            <p className="text-[11px] text-zinc-400">نسخه ۱.۰.۰ — متن‌باز با مجوز MIT</p>
+          </div>
+        </div>
+
+        <div className="space-y-2.5 text-xs text-zinc-300 leading-relaxed">
+          <p>
+            <strong className="text-zinc-100">حریم خصوصی ۱۰۰٪ محلی:</strong> تمام وعده‌ها، اهداف،
+            وزن و غذاهای شخصی شما فقط در حافظه همین مرورگر (`localStorage`) ذخیره می‌شوند. هیچ
+            ثبت‌نامی وجود ندارد، هیچ اطلاعاتی به سرور ارسال نمی‌شود و هیچ کوکی تبلیغاتی یا ردیابی
+            استفاده نمی‌شود.
+          </p>
+          <p>
+            <strong className="text-zinc-100">سلب مسئولیت پزشکی:</strong>{' '}
+            {HEALTH_DISCLAIMERS.educationalNotice} {HEALTH_DISCLAIMERS.specialGroupsWarning}
+          </p>
+          <div>
+            <strong className="text-zinc-100">منابع ارزش‌های غذایی (تقریبی):</strong>
+            <ul className="list-disc list-inside text-zinc-400 mt-1 space-y-0.5">
+              {NUTRITION_DATA_SOURCES.detailedSources.map((src) => (
+                <li key={src}>{src}</li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
@@ -663,7 +847,9 @@ export function SettingsTab({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-[#222227]">
-          <div className="text-xs text-zinc-300">پاک کردن تمام وعده‌ها و گزارش آب ثبت‌شده</div>
+          <div className="text-xs text-zinc-300">
+            پاک کردن تمام وعده‌ها، گزارش آب و وزن‌های ثبت‌شده
+          </div>
           {!confirmClear ? (
             <button
               type="button"

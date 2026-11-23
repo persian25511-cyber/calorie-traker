@@ -1,15 +1,34 @@
-const CACHE_VERSION = 'kalorishomar-v2'
+const CACHE_VERSION = 'kalorishomar-v3'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`
+const MAX_RUNTIME_ENTRIES = 80
 
-const APP_SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
+const APP_SHELL_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
+  '/apple-touch-icon.png',
+]
+
+/** Caps runtime cache size so stale hashed assets never accumulate indefinitely. */
+async function trimCache(cacheName, maxEntries) {
+  const cache = await caches.open(cacheName)
+  const keys = await cache.keys()
+  if (keys.length <= maxEntries) return
+  const excess = keys.length - maxEntries
+  await Promise.all(keys.slice(0, excess).map((req) => cache.delete(req)))
+}
 
 self.addEventListener('install', (event) => {
+  // Intentionally do NOT call self.skipWaiting() here so an update never reloads
+  // the page while the user is mid-entry. Activation happens only when the user
+  // clicks "به‌روزرسانی" (which posts SKIP_WAITING) or opens a fresh session.
   event.waitUntil(
-    caches
-      .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(APP_SHELL_ASSETS))
-      .then(() => self.skipWaiting()),
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(APP_SHELL_ASSETS)),
   )
 })
 
@@ -40,10 +59,10 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url)
 
-  // Never intercept Railway/platform health checks
-  if (url.pathname === '/health') return
+  // Only handle same-origin requests; never intercept healthchecks or external URLs
+  if (url.origin !== self.location.origin || url.pathname === '/health') return
 
-  // Network-first with offline fallback for SPA document navigations
+  // Network-first with offline cache fallback for SPA document navigations
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
@@ -59,25 +78,27 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Cache-first for Vite fingerprinted assets and Google Fonts (Vazirmatn)
-  const isSameOriginAsset =
-    url.origin === self.location.origin &&
-    (url.pathname.startsWith('/assets/') ||
-      url.pathname.endsWith('.svg') ||
-      url.pathname.endsWith('.webmanifest'))
+  // Cache-first with bounded LRU pruning for Vite fingerprinted JS/CSS/WOFF2 & icons
+  const isStaticAsset =
+    url.pathname.startsWith('/assets/') ||
+    url.pathname.startsWith('/icons/') ||
+    url.pathname.endsWith('.woff2') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.webmanifest')
 
-  const isFontResource =
-    url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com'
-
-  if (isSameOriginAsset || isFontResource) {
+  if (isStaticAsset) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached
         return fetch(request)
           .then((response) => {
-            if (response.ok || response.type === 'opaque') {
+            if (response.ok) {
               const copy = response.clone()
-              caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy))
+              caches
+                .open(RUNTIME_CACHE)
+                .then((cache) => cache.put(request, copy))
+                .then(() => trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES))
             }
             return response
           })
