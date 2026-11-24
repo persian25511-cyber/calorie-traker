@@ -17,7 +17,7 @@ ARG VITE_SITE_URL=""
 ARG VITE_DEFAULT_DAILY_KCAL=2000
 ARG VITE_DEFAULT_WATER_GOAL_GLASSES=8
 ARG VITE_ENABLE_PWA=true
-ARG VITE_REPO_URL="https://github.com/persian25511-cyber/calorie-traker"
+ARG VITE_REPO_URL="https://github.com/soroushse7o/persian-calorie-tracker"
 
 ENV VITE_APP_NAME=$VITE_APP_NAME
 ENV VITE_SITE_URL=$VITE_SITE_URL

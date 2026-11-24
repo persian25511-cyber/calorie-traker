@@ -1,5 +1,6 @@
 import { Activity, Check, Copy, ExternalLink, Lock, MessageSquarePlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { APP_CONFIG } from '../../config/env'
 import {
   buildAnonymousBetaIssueUrl,
   buildGeneralFeedbackIssueUrl,
@@ -160,7 +161,24 @@ export function AboutAndBetaSection({ entries }: AboutAndBetaSectionProps) {
               حریم خصوصی، منابع علمی و مجوز انتشار
             </h2>
             <p className="text-[11px] text-zinc-400">
-              نسخه کاتالوگ {CATALOG_VERSION} — متن‌باز با مجوز MIT (persian25511-cyber)
+              نسخه کاتالوگ {CATALOG_VERSION} — متن‌باز با مجوز MIT ·{' '}
+              <a
+                href={APP_CONFIG.authorUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:underline font-medium"
+              >
+                @soroushse7o
+              </a>{' '}
+              ·{' '}
+              <a
+                href={APP_CONFIG.repoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-400 hover:underline font-medium"
+              >
+                مخزن گیت‌هاب
+              </a>
             </p>
           </div>
         </div>

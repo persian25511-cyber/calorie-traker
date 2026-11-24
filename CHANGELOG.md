@@ -50,7 +50,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - **Complete Sanitization & `ErrorBoundary` Safe Mode:** Added sanitizers for `weights`, `templates`, `waterByDate`, and `foodOverrides` on hydration, cross-tab sync, and import, plus crash-proof raw `localStorage` dump + 2-step reset in `ErrorBoundary`.
   - **iOS Add-to-Home-Screen Guide & IndexedDB Adapter:** Added `detectIosDevice` + step-by-step Safari A2HS instructions, tiered gentle/urgent backup reminders showing exact unbacked entry counts, and `src/storage/idbAdapter.ts` + `docs/STORAGE_ROADMAP.md`.
   - **Strict Build-Time `VITE_SITE_URL`, Canonical & Sitemap:** Enforced `VITE_SITE_URL` at build time (fails fast if unset) to inject absolute `canonical`, `og:url`, `og:image`, and `twitter:image` tags and generate `dist/sitemap.xml` and `dist/robots.txt`.
-  - **Health Safety & Feedback Channels:** Added soft health warning for manual goals below `1,200 kcal`, supportive non-pressuring Streak & Weight copy, `persian25511-cyber` MIT license attribution, and prefilled GitHub Issue templates (`.github/ISSUE_TEMPLATE/*`) for missing/wrong foods and feedback.
+  - **Health Safety & Feedback Channels:** Added soft health warning for manual goals below `1,200 kcal`, supportive non-pressuring Streak & Weight copy, `soroushse7o` MIT license attribution, and prefilled GitHub Issue templates (`.github/ISSUE_TEMPLATE/*`) for missing/wrong foods and feedback.
 - **Phase 1 — Pre-Launch Quality & Modular Architecture:**
   - Fixed `updateEntry` rounding drift via `recomputeUpdatedEntry` (`per100g × grams` always).
   - Split `persianFoodParser.ts` into `src/utils/parser/*` and `FoodDatabaseTab.tsx` into `src/components/foodDatabase/*`.

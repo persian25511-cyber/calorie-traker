@@ -13,5 +13,6 @@ export const APP_CONFIG = {
   enablePwa: import.meta.env.VITE_ENABLE_PWA !== 'false',
   repoUrl:
     import.meta.env.VITE_REPO_URL?.trim() ||
-    'https://github.com/persian25511-cyber/calorie-traker',
+    'https://github.com/soroushse7o/persian-calorie-tracker',
+  authorUrl: 'https://github.com/soroushse7o',
 } as const

@@ -1,9 +1,18 @@
 {
-  "name": "calorie-tracker",
+  "name": "persian-calorie-tracker",
   "private": true,
   "version": "1.4.0",
   "type": "module",
   "license": "MIT",
+  "author": {
+    "name": "soroushse7o",
+    "url": "https://github.com/soroushse7o"
+  },
+  "homepage": "https://github.com/soroushse7o/persian-calorie-tracker#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soroushse7o/persian-calorie-tracker.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -5,10 +5,10 @@
 **ردیاب سریع، کاملاً آفلاین و هوشمند کالری، درشت‌مغذی، فیبر، آب و وزن برای غذاهای خانگی و بسته‌بندی ایرانی**
 *Fast, 100% offline-first, mobile-first Persian Calorie & Nutrition Tracker built for Iranian home-cooked meals and real kitchen units.*
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fpersian25511-cyber%2Fcalorie-traker&project-name=calorie-tracker&repository-name=calorie-tracker&env=VITE_SITE_URL&envDescription=Canonical%20public%20HTTPS%20URL%20for%20OpenGraph%20and%20sitemap)
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fpersian25511-cyber%2Fcalorie-traker)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsoroushse7o%2Fpersian-calorie-tracker&project-name=persian-calorie-tracker&repository-name=persian-calorie-tracker&env=VITE_SITE_URL&envDescription=Canonical%20public%20HTTPS%20URL%20for%20OpenGraph%20and%20sitemap)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fsoroushse7o%2Fpersian-calorie-tracker)
 
-[نسخه فارسی (Persian)](#-نسخه-فارسی) • [English Documentation](#-english-documentation) • [اعتبارسنجی داده‌ها](./docs/FOOD_DATA_VALIDATION.md) • [Changelog](./CHANGELOG.md) • [MIT License](./LICENSE)
+[نسخه فارسی (Persian)](#-نسخه-فارسی) • [English Documentation](#-english-documentation) • [اعتبارسنجی داده‌ها](./docs/FOOD_DATA_VALIDATION.md) • [Changelog](./CHANGELOG.md) • [MIT License](./LICENSE) • [GitHub (@soroushse7o)](https://github.com/soroushse7o)
 
 </div>
 
@@ -44,8 +44,8 @@
 ### اجرای محلی و تست‌ها
 
 ```bash
-git clone https://github.com/persian25511-cyber/calorie-traker.git
-cd calorie-traker
+git clone https://github.com/soroushse7o/persian-calorie-tracker.git
+cd persian-calorie-tracker
 npm ci
 cp .env.example .env.local   # شامل VITE_SITE_URL برای بیلد محلی
 npm run dev
@@ -97,5 +97,5 @@ npm run test:e2e                                           # تست E2E آفلا
 VITE_SITE_URL="https://your-domain.com" npm run build
 ```
 
-### License
-Licensed under the [MIT License](./LICENSE) (`Copyright (c) 2026 persian25511-cyber`).
+### License & Author
+Licensed under the [MIT License](./LICENSE) — Copyright (c) 2026 [soroushse7o](https://github.com/soroushse7o) ([Repository](https://github.com/soroushse7o/persian-calorie-tracker)).

@@ -45,7 +45,7 @@ jobs:
 
       - name: Build production bundle
         env:
-          VITE_SITE_URL: ${{ vars.VITE_SITE_URL || 'https://calorie-traker.vercel.app' }}
+          VITE_SITE_URL: ${{ vars.VITE_SITE_URL || 'https://persian-calorie-tracker.vercel.app' }}
         run: npm run build
 
       - name: Check production bundle size budget
