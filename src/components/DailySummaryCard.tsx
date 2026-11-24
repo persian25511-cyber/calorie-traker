@@ -1,4 +1,4 @@
-import { Check, Copy, Droplets, Minus, Plus } from 'lucide-react'
+import { Check, Copy, Droplets, ImageDown, Minus, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { MacroValues, UserGoals } from '../types/nutrition'
 import { formatFaNumber } from '../utils/persianFormat'
@@ -11,6 +11,7 @@ interface DailySummaryCardProps {
   waterGlasses: number
   onAdjustWater: (delta: number) => void
   onCopyDailyReport: () => Promise<boolean>
+  onShareDailyImage?: () => Promise<void>
 }
 
 export function DailySummaryCard({
@@ -21,6 +22,7 @@ export function DailySummaryCard({
   waterGlasses,
   onAdjustWater,
   onCopyDailyReport,
+  onShareDailyImage,
 }: DailySummaryCardProps) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
@@ -81,10 +83,10 @@ export function DailySummaryCard({
   const handleCopy = async () => {
     const ok = await onCopyDailyReport()
     if (ok) {
+      setCopied(true)
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current)
       }
-      setCopied(true)
       copyTimerRef.current = window.setTimeout(() => {
         setCopied(false)
         copyTimerRef.current = null
@@ -94,35 +96,47 @@ export function DailySummaryCard({
 
   return (
     <section
-      aria-label="خلاصه کالری و درشت‌مغذی‌های روزانه"
+      aria-label={`خلاصه تغذیه ${dayLabel}`}
       className="card-surface rounded-2xl p-4 sm:p-5"
-      data-testid="daily-summary-card"
     >
       <div className="flex items-center justify-between gap-2 mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-zinc-100">تراز روزانه</h2>
-          <span className="text-xs text-zinc-500">({dayLabel})</span>
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-100">خلاصه {dayLabel}</h2>
+          <p className="text-[11px] text-zinc-400">برآورد تقریبی انرژی و درشت‌مغذی‌ها</p>
         </div>
-        <button
-          type="button"
-          id={`${idPrefix}-copy-daily-report-btn`}
-          data-testid="copy-daily-report-btn"
-          onClick={handleCopy}
-          title="کپی خلاصه گزارش روزانه برای اشتراک‌گذاری"
-          className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#27272E] border border-[#2B2B32] px-2.5 py-1 text-[11px] text-zinc-300 hover:text-emerald-300 transition-colors"
-        >
-          {copied ? (
-            <>
-              <Check className="w-3 h-3 text-emerald-400" />
-              <span className="text-emerald-300">کپی شد</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3 h-3" />
-              <span>کپی گزارش</span>
-            </>
+
+        <div className="flex items-center gap-1.5">
+          {onShareDailyImage && (
+            <button
+              type="button"
+              id={`${idPrefix}-share-daily-image-btn`}
+              onClick={() => void onShareDailyImage()}
+              title="ذخیره یا اشتراک تصویر کارت روزانه"
+              className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#282830] border border-[#2C2C33] text-zinc-300 hover:text-zinc-100 text-[11px] font-medium px-2 py-1.5 transition-colors"
+            >
+              <ImageDown className="w-3 h-3 text-emerald-400" />
+              <span>تصویر</span>
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            id={`${idPrefix}-copy-daily-report-btn`}
+            onClick={() => void handleCopy()}
+            className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#282830] border border-[#2C2C33] text-zinc-300 hover:text-zinc-100 text-[11px] font-medium px-2.5 py-1.5 transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-300">کپی شد</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>کپی متن</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Ring + Key Calorie Numbers */}
@@ -134,7 +148,7 @@ export function DailySummaryCard({
             viewBox={`0 0 ${size} ${size}`}
             className="-rotate-90"
             role="img"
-            aria-label={`مصرف ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`}
+            aria-label={`مصرف تقریبی ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`}
           >
             <circle
               cx={size / 2}
@@ -149,7 +163,7 @@ export function DailySummaryCard({
               cy={size / 2}
               r={radius}
               fill="none"
-              stroke={isOver ? '#EF4444' : '#10B981'}
+              stroke={isOver ? '#F59E0B' : '#10B981'}
               strokeWidth={strokeWidth}
               strokeLinecap="round"
               strokeDasharray={circumference}
@@ -162,7 +176,7 @@ export function DailySummaryCard({
             <span
               data-testid="consumed-kcal"
               className={`text-3xl font-extrabold tracking-tight tabular-nums-fa leading-none ${
-                isOver ? 'text-rose-400' : 'text-zinc-50'
+                isOver ? 'text-amber-300' : 'text-zinc-50'
               }`}
             >
               {formatFaNumber(consumed.kcal)}
@@ -174,12 +188,12 @@ export function DailySummaryCard({
               data-testid="remaining-kcal"
               className={`mt-2 text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums-fa ${
                 isOver
-                  ? 'bg-rose-500/15 text-rose-300'
+                  ? 'bg-amber-500/15 text-amber-300'
                   : 'bg-emerald-500/12 text-emerald-300'
               }`}
             >
               {isOver
-                ? `${formatFaNumber(Math.abs(remaining))} بیش از هدف`
+                ? `${formatFaNumber(Math.abs(remaining))} بالاتر از هدف`
                 : `${formatFaNumber(remaining)} مانده`}
             </span>
           </div>
@@ -217,18 +231,12 @@ export function DailySummaryCard({
       </div>
 
       {/* Compact Daily Water Intake Tracker */}
-      <div
-        className="mt-4 pt-4 border-t border-[#222227]"
-        data-testid="water-tracker"
-      >
+      <div className="mt-4 pt-4 border-t border-[#222227]" data-testid="water-tracker">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 text-xs">
             <Droplets className="w-3.5 h-3.5 text-cyan-400" />
             <span className="font-medium text-zinc-200">آب روزانه</span>
-            <span
-              data-testid="water-count"
-              className="text-cyan-400 font-semibold tabular-nums-fa"
-            >
+            <span data-testid="water-count" className="text-cyan-400 font-semibold tabular-nums-fa">
               {formatFaNumber(waterGlasses)} / {formatFaNumber(waterTarget)} لیوان
             </span>
           </div>

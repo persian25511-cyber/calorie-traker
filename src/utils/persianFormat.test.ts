@@ -95,7 +95,7 @@ describe('Store Migration, Import Sanitizers & Streak Helpers', () => {
     expect(sanitizeImportedEntry({ id: 'bad-date', dateKey: '1405/09/01', foodName: 'سیب', kcal: 50 })).toBeNull()
   })
 
-  it('migrates legacy v1 localStorage keys cleanly to v2 schema', () => {
+  it('migrates legacy v1 localStorage keys cleanly to v3 schema', () => {
     const store = new Map<string, string>([
       ['kalorishomar_v1_entries', JSON.stringify([{ id: 'e1' }])],
       ['kalorishomar_v1_goals', JSON.stringify({ dailyKcal: 1900 })],
@@ -108,7 +108,7 @@ describe('Store Migration, Import Sanitizers & Streak Helpers', () => {
     }
 
     runStorageMigrations(mockStorage)
-    expect(store.get(STORAGE_KEYS.schemaVersion)).toBe('2')
+    expect(store.get(STORAGE_KEYS.schemaVersion)).toBe('3')
     expect(store.get(STORAGE_KEYS.entries)).toBe(JSON.stringify([{ id: 'e1' }]))
     expect(store.get(STORAGE_KEYS.goals)).toBe(JSON.stringify({ dailyKcal: 1900 }))
   })

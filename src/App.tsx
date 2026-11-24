@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DailySummaryCard } from './components/DailySummaryCard'
+import { OnboardingCard } from './components/OnboardingCard'
 import { QuickEntryBar } from './components/QuickEntryBar'
 import { TodayMealsList } from './components/TodayMealsList'
 import { APP_CONFIG } from './config/env'
@@ -41,6 +42,7 @@ import {
   shiftDateKey,
 } from './utils/persianFormat'
 import { usePwaStatus } from './utils/pwa'
+import { exportDailySummaryImage } from './utils/reportImageExport'
 
 const loadWeeklyTrendsTab = () =>
   import('./components/WeeklyTrendsTab').then((m) => ({ default: m.WeeklyTrendsTab }))
@@ -55,7 +57,7 @@ const SettingsTab = lazy(loadSettingsTab)
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'ثبت روزانه', icon: Home },
-  { id: 'trends', label: 'روند و وزن', icon: BarChart3 },
+  { id: 'trends', label: 'روند و تاریخچه', icon: BarChart3 },
   { id: 'foods', label: 'بانک غذاها', icon: BookOpen },
   { id: 'settings', label: 'تنظیمات', icon: Settings },
 ]
@@ -68,6 +70,8 @@ interface ToastState {
 export function App() {
   const {
     foods,
+    customFoodsCount,
+    overridesCount,
     entries,
     goals,
     waterByDate,
@@ -75,9 +79,12 @@ export function App() {
     templates,
     theme,
     lastBackupAt,
+    preImportSavedAt,
     storageError,
     persistenceState,
     shouldRemindBackup,
+    backupReminderLevel,
+    unbackedEntriesCount,
     setTheme,
     dismissStorageError,
     logParsedItems,
@@ -94,18 +101,22 @@ export function App() {
     addFood,
     updateFood,
     deleteFood,
+    revertFoodOverride,
     resetDefaultFoods,
     updateGoals,
     clearAllEntries,
     exportBackupJson,
     exportEntriesCsv,
+    previewBackupJson,
     importBackupJson,
+    restorePreImportSnapshot,
   } = useNutritionStore()
 
   const pwaStatus = usePwaStatus()
 
   const [todayKey, setTodayKey] = useState<string>(getLocalDateKey)
   const [activeTab, setActiveTab] = useState<AppTab>('home')
+  const [openCalcOnSettings, setOpenCalcOnSettings] = useState(false)
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey)
   const [quickInput, setQuickInput] = useState('')
   const [mealType, setMealType] = useState<MealType>(() => getDefaultMealTypeForHour())
@@ -230,7 +241,7 @@ export function App() {
       const created = logParsedItems(items, chosenMealType, selectedDateKey, sourceText)
       const totalKcal = created.reduce((sum, item) => sum + item.kcal, 0)
       showToast(
-        `${formatFaNumber(created.length)} مورد در ${MEAL_TYPE_LABELS[chosenMealType]} ثبت شد (${formatFaNumber(totalKcal)} کالری)`,
+        `${formatFaNumber(created.length)} مورد در ${MEAL_TYPE_LABELS[chosenMealType]} ثبت شد (~${formatFaNumber(totalKcal)} کالری)`,
       )
     },
     [logParsedItems, selectedDateKey, showToast],
@@ -261,7 +272,7 @@ export function App() {
       const cloned = repeatEntries(items, targetMealType, selectedDateKey)
       const totalKcal = cloned.reduce((sum, item) => sum + item.kcal, 0)
       showToast(
-        `${MEAL_TYPE_LABELS[targetMealType]} تکرار شد (${formatFaNumber(totalKcal)} کالری)`,
+        `${MEAL_TYPE_LABELS[targetMealType]} تکرار شد (~${formatFaNumber(totalKcal)} کالری)`,
       )
     },
     [repeatEntries, selectedDateKey, showToast],
@@ -279,7 +290,7 @@ export function App() {
     (template: MealTemplate) => {
       const created = applyMealTemplate(template, selectedDateKey, mealType)
       const totalKcal = created.reduce((sum, item) => sum + item.kcal, 0)
-      showToast(`«${template.name}» ثبت شد (${formatFaNumber(totalKcal)} کالری)`)
+      showToast(`«${template.name}» ثبت شد (~${formatFaNumber(totalKcal)} کالری)`)
     },
     [applyMealTemplate, mealType, selectedDateKey, showToast],
   )
@@ -321,6 +332,24 @@ export function App() {
     }
   }, [dailyConsumed, dayEntries, goals, selectedJalaliFull, selectedWaterGlasses, showToast])
 
+  const handleShareDailyImage = useCallback(async () => {
+    const res = await exportDailySummaryImage(
+      {
+        appName: APP_CONFIG.appName,
+        dateLabel: selectedJalaliFull,
+        consumed: dailyConsumed,
+        goals,
+        waterGlasses: selectedWaterGlasses,
+      },
+      `kalorishomar-${selectedDateKey}.png`,
+    )
+    if (res === 'downloaded') {
+      showToast('تصویر کارت روزانه ذخیره شد')
+    } else if (res === 'failed') {
+      showToast('امکان ساخت تصویر در این مرورگر وجود نداشت')
+    }
+  }, [dailyConsumed, goals, selectedDateKey, selectedJalaliFull, selectedWaterGlasses, showToast])
+
   const handleQuickUseFood = useCallback(
     (food: FoodItem) => {
       const phrase = `یک ${food.defaultUnit} ${food.name}`
@@ -360,14 +389,32 @@ export function App() {
     [deleteFood, showToast],
   )
 
+  const handleRevertFoodOverride = useCallback(
+    (id: string) => {
+      revertFoodOverride(id)
+      showToast('غذا به مقدار پیش‌فرض کاتالوگ بازگردانده شد')
+    },
+    [revertFoodOverride, showToast],
+  )
+
   const handleSelectDateFromTrends = useCallback((dateKey: string) => {
     setSelectedDateKey(dateKey)
     setActiveTab('home')
   }, [])
 
+  const isUrgentBackup = backupReminderLevel === 'urgent'
+
   return (
     <div dir="rtl" className="min-h-dvh bg-[#0C0C0D] text-[#FAFAFA] flex flex-col">
-      {/* Visible Storage Quota / Persistence Error Banner (NEVER silently swallow errors) */}
+      {/* Keyboard Accessibility Skip Link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:right-2 focus:z-50 focus:rounded-xl focus:bg-emerald-500 focus:text-[#051B11] focus:font-bold focus:px-4 focus:py-2 focus:text-xs"
+      >
+        پرش به محتوای اصلی
+      </a>
+
+      {/* Visible Storage Quota / Persistence Error Banner */}
       {storageError && (
         <div
           role="alert"
@@ -399,7 +446,7 @@ export function App() {
         </div>
       )}
 
-      {/* User-Controlled PWA Update Available Banner (never reloads mid-typing) */}
+      {/* User-Controlled PWA Update Available Banner */}
       {pwaStatus.hasUpdate && (
         <div className="bg-amber-500/15 border-b border-amber-500/25 px-4 py-2 text-xs flex items-center justify-center gap-3">
           <span className="text-amber-200">نسخه جدید کالری‌شمار روزمره آماده است.</span>
@@ -414,19 +461,29 @@ export function App() {
         </div>
       )}
 
-      {/* Gentle Weekly Backup Reminder Banner */}
+      {/* Stronger Tiered Local Backup Reminder Banner */}
       {shouldRemindBackup && !backupReminderDismissed && !storageError && (
         <div
           data-testid="weekly-backup-reminder"
-          className="bg-sky-500/10 border-b border-sky-500/20 px-4 py-2 text-xs flex flex-wrap items-center justify-center gap-2.5"
+          className={`border-b px-4 py-2.5 text-xs flex flex-wrap items-center justify-center gap-2.5 ${
+            isUrgentBackup
+              ? 'bg-amber-500/14 border-amber-500/35'
+              : 'bg-sky-500/10 border-sky-500/20'
+          }`}
         >
-          <span className="text-zinc-200">
-            داده‌ها فقط روی این دستگاه ذخیره می‌شوند؛ یادآوری پشتیبان‌گیری هفتگی:
+          <span className="text-zinc-100 tabular-nums-fa">
+            {isUrgentBackup
+              ? `مهم: ${formatFaNumber(unbackedEntriesCount)} وعده شما فقط روی حافظه مرورگر است و هنوز پشتیبان ندارد!`
+              : `یادآوری پشتیبان‌گیری (${formatFaNumber(unbackedEntriesCount)} وعده جدید روی این دستگاه):`}
           </span>
           <button
             type="button"
             onClick={handleQuickDownloadBackup}
-            className="inline-flex items-center gap-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-semibold px-2.5 py-1 text-[11px]"
+            className={`inline-flex items-center gap-1 rounded-lg font-bold px-2.5 py-1 text-[11px] ${
+              isUrgentBackup
+                ? 'bg-amber-500 text-[#1A1202]'
+                : 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300'
+            }`}
           >
             <Download className="w-3 h-3" />
             <span>دانلود پشتیبان JSON</span>
@@ -445,7 +502,6 @@ export function App() {
       {/* Sticky Top Header */}
       <header className="sticky top-0 z-30 bg-[#0C0C0D]/90 backdrop-blur-xl border-b border-[#1E1E22]">
         <div className="max-w-5xl mx-auto px-4 h-15 flex items-center justify-between gap-3">
-          {/* Brand Title */}
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-[#161618] border border-[#26262A] flex items-center justify-center shrink-0">
               <Flame className="w-5 h-5 text-emerald-400" />
@@ -468,7 +524,6 @@ export function App() {
             </div>
           </div>
 
-          {/* Desktop Navigation Tabs */}
           <nav
             aria-label="منوی اصلی دسکتاپ"
             className="hidden md:flex items-center gap-1 rounded-xl bg-[#161618] border border-[#26262A] p-1"
@@ -482,7 +537,10 @@ export function App() {
                   type="button"
                   id={`desktop-nav-${tab.id}`}
                   data-nav-tab={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setOpenCalcOnSettings(false)
+                    setActiveTab(tab.id)
+                  }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                     active
                       ? 'bg-emerald-500 text-[#051B11] font-bold'
@@ -496,7 +554,6 @@ export function App() {
             })}
           </nav>
 
-          {/* Compact Jalali Date Switcher on Home Tab */}
           {activeTab === 'home' ? (
             <div className="flex items-center gap-1 rounded-xl bg-[#161618] border border-[#26262A] p-1 shrink-0">
               <button
@@ -535,11 +592,11 @@ export function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 pt-4 pb-28 md:pb-8">
+      <main id="main-content" className="flex-1 w-full max-w-5xl mx-auto px-4 pt-4 pb-28 md:pb-8">
         {activeTab === 'home' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            {/* Primary Column: Instant Quick Entry FIRST, then Today's Meals */}
             <div className="lg:col-span-8 space-y-4">
+              {/* Instant Quick Entry ALWAYS at very top for <10s logging UX */}
               <QuickEntryBar
                 foods={foods}
                 recentEntries={entries}
@@ -555,7 +612,22 @@ export function App() {
                 onRequestAddCustomFood={handleRequestAddCustomFood}
               />
 
-              {/* Mobile-first Summary right below Quick Entry */}
+              {/* Non-blocking 3-Step Guided Onboarding */}
+              <OnboardingCard
+                goals={goals}
+                entriesCount={entries.length}
+                pwaStatus={pwaStatus}
+                onUpdateGoals={(next) => {
+                  updateGoals(next)
+                  showToast('هدف روزانه شما ذخیره شد')
+                }}
+                onTrySamplePhrase={(phrase) => setQuickInput(phrase)}
+                onOpenCalculatorInSettings={() => {
+                  setOpenCalcOnSettings(true)
+                  setActiveTab('settings')
+                }}
+              />
+
               <div className="lg:hidden">
                 <DailySummaryCard
                   idPrefix="mobile"
@@ -565,6 +637,7 @@ export function App() {
                   waterGlasses={selectedWaterGlasses}
                   onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                   onCopyDailyReport={handleCopyDailyReport}
+                  onShareDailyImage={handleShareDailyImage}
                 />
               </div>
 
@@ -580,7 +653,6 @@ export function App() {
               />
             </div>
 
-            {/* Desktop Sticky Sidebar: Daily Calorie Ring, Macros & Water */}
             <div className="hidden lg:block lg:col-span-4 lg:sticky lg:top-20">
               <DailySummaryCard
                 idPrefix="desktop"
@@ -590,6 +662,7 @@ export function App() {
                 waterGlasses={selectedWaterGlasses}
                 onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                 onCopyDailyReport={handleCopyDailyReport}
+                onShareDailyImage={handleShareDailyImage}
               />
             </div>
           </div>
@@ -599,7 +672,7 @@ export function App() {
           <Suspense
             fallback={
               <div className="card-surface rounded-2xl p-8 text-center text-xs text-zinc-400">
-                در حال بارگذاری نمودار روند و وزن...
+                در حال بارگذاری نمودار روند و تاریخچه...
               </div>
             }
           >
@@ -634,6 +707,7 @@ export function App() {
               onAddFood={handleAddFood}
               onUpdateFood={handleUpdateFood}
               onDeleteFood={handleDeleteFood}
+              onRevertFoodOverride={handleRevertFoodOverride}
               onQuickUseFood={handleQuickUseFood}
             />
           </Suspense>
@@ -650,11 +724,15 @@ export function App() {
             <SettingsTab
               goals={goals}
               foodsCount={foods.length}
-              entriesCount={entries.length}
+              customFoodsCount={customFoodsCount}
+              overridesCount={overridesCount}
+              entries={entries}
               theme={theme}
               lastBackupAt={lastBackupAt}
+              preImportSavedAt={preImportSavedAt}
               persistenceState={persistenceState}
               pwaStatus={pwaStatus}
+              initialOpenCalculator={openCalcOnSettings}
               onThemeChange={setTheme}
               onUpdateGoals={(next) => {
                 updateGoals(next)
@@ -662,7 +740,9 @@ export function App() {
               }}
               onExportJson={exportBackupJson}
               onExportCsv={exportEntriesCsv}
+              onPreviewBackupJson={previewBackupJson}
               onImportJson={importBackupJson}
+              onRestorePreImportSnapshot={restorePreImportSnapshot}
               onResetDefaultFoods={resetDefaultFoods}
               onClearAllEntries={() => {
                 clearAllEntries()
@@ -677,8 +757,8 @@ export function App() {
           <div className="flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
             <span>
-              ارزش‌های غذایی تقریبی هستند · ابزار آموزشی (جایگزین پزشک نیست) · داده‌ها فقط روی
-              دستگاه شما می‌ماند.
+              ارزش‌های غذایی برآورد تقریبی هستند · ابزار آموزشی (جایگزین پزشک نیست) · داده‌ها فقط روی
+              دستگاه شما می‌ماند (بدون ردیابی).
             </span>
           </div>
           <button
@@ -686,7 +766,7 @@ export function App() {
             onClick={() => setActiveTab('settings')}
             className="text-emerald-400 hover:underline font-medium shrink-0"
           >
-            حریم خصوصی، منابع و مجوز MIT
+            حریم خصوصی، بازخورد و مجوز MIT
           </button>
         </footer>
       </main>
@@ -730,7 +810,10 @@ export function App() {
                 type="button"
                 id={`mobile-nav-${tab.id}`}
                 data-nav-tab={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setOpenCalcOnSettings(false)
+                  setActiveTab(tab.id)
+                }}
                 className={`flex flex-col items-center justify-center gap-1 rounded-xl transition-colors ${
                   active ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'
                 }`}

@@ -16,6 +16,19 @@ interface DailyReportParams {
   entries: LoggedFoodEntry[]
 }
 
+export interface WeeklyReportParams {
+  appName: string
+  periodLabel: string
+  activeDaysCount: number
+  avgKcal: number
+  goalKcal: number
+  withinGoalDays: number
+  avgProtein: number
+  avgCarbs: number
+  avgFat: number
+  days: Array<{ label: string; kcal: number }>
+}
+
 /** Formats a crisp Persian daily nutrition summary ready for copying/sharing. */
 export function buildPersianDailyReport({
   appName,
@@ -29,12 +42,12 @@ export function buildPersianDailyReport({
   const balanceLine =
     remaining >= 0
       ? `باقی‌مانده تا هدف: ${formatFaNumber(remaining)} کالری`
-      : `بیش از هدف: ${formatFaNumber(Math.abs(remaining))} کالری`
+      : `بالاتر از محدوده هدف: ${formatFaNumber(Math.abs(remaining))} کالری`
 
   const lines: string[] = [
     `گزارش روزانه ${appName} — ${jalaliDateLabel}`,
     `────────────────────`,
-    `کالری مصرفی: ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`,
+    `کالری تقریبی: ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`,
     balanceLine,
     `پروتئین: ${formatFaNumber(consumed.protein, 1)} / ${formatFaNumber(goals.proteinGrams)} گرم`,
     `کربوهیدرات: ${formatFaNumber(consumed.carbs, 1)} / ${formatFaNumber(goals.carbsGrams)} گرم`,
@@ -57,5 +70,23 @@ export function buildPersianDailyReport({
     }
   }
 
+  return lines.join('\n')
+}
+
+/** Formats a clean, non-pressuring 7-day Persian weekly nutrition summary. */
+export function buildPersianWeeklyReport(params: WeeklyReportParams): string {
+  const lines: string[] = [
+    `گزارش هفتگی ${params.appName} (${params.periodLabel})`,
+    `────────────────────`,
+    `میانگین روزانه: ~${formatFaNumber(params.avgKcal)} کالری (هدف: ${formatFaNumber(params.goalKcal)})`,
+    `روزهای دارای ثبت: ${formatFaNumber(params.activeDaysCount)} از ۷ روز (${formatFaNumber(params.withinGoalDays)} روز در محدوده هدف)`,
+    `میانگین درشت‌مغذی‌ها: پروتئین ${formatFaNumber(params.avgProtein, 1)}گ · کربوهیدرات ${formatFaNumber(params.avgCarbs, 1)}گ · چربی ${formatFaNumber(params.avgFat, 1)}گ`,
+    '',
+    'جزئیات روزهای هفته:',
+    ...params.days.map(
+      (d) =>
+        `• ${d.label}: ${d.kcal > 0 ? `~${formatFaNumber(d.kcal)} کالری` : 'بدون ثبت'}`,
+    ),
+  ]
   return lines.join('\n')
 }

@@ -11,6 +11,7 @@ ENV NPM_CONFIG_FUND=false
 WORKDIR /app
 
 # Declare Vite build-time environment variables (Railway injects service vars as ARGs)
+# IMPORTANT: VITE_SITE_URL is REQUIRED (no default fallback) — set it in Railway Service Variables!
 ARG VITE_APP_NAME="کالری‌شمار روزمره"
 ARG VITE_SITE_URL=""
 ARG VITE_DEFAULT_DAILY_KCAL=2000
@@ -29,6 +30,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . ./
+RUN test -n "$VITE_SITE_URL" || (echo "ERROR: VITE_SITE_URL build-arg/variable is required!" >&2 && exit 1)
 RUN npm run build
 
 # ==============================================================================

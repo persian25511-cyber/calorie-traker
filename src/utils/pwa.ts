@@ -10,6 +10,8 @@ export interface PwaStatus {
   isOnline: boolean
   isInstalled: boolean
   canInstall: boolean
+  /** True on iPhone/iPad when running in browser tab (where beforeinstallprompt does not exist) */
+  isIosInstallable: boolean
   hasUpdate: boolean
   promptInstall: () => Promise<boolean>
   applyUpdate: () => void
@@ -24,11 +26,23 @@ function detectStandalone(): boolean {
   )
 }
 
+export function detectIosDevice(
+  ua: string = typeof navigator !== 'undefined' ? navigator.userAgent : '',
+  platform: string = typeof navigator !== 'undefined' ? navigator.platform : '',
+  maxTouchPoints: number = typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
+): boolean {
+  if (/iPad|iPhone|iPod/i.test(ua)) return true
+  // iPadOS 13+ desktop-class Safari reports MacIntel with touch points
+  if (platform === 'MacIntel' && maxTouchPoints > 1) return true
+  return false
+}
+
 export function usePwaStatus(): PwaStatus {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   )
   const [isInstalled, setIsInstalled] = useState(detectStandalone)
+  const [isIosDevice] = useState(() => detectIosDevice())
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
 
@@ -130,6 +144,7 @@ export function usePwaStatus(): PwaStatus {
     isOnline,
     isInstalled,
     canInstall: Boolean(deferredPrompt) && !isInstalled,
+    isIosInstallable: isIosDevice && !isInstalled,
     hasUpdate: Boolean(waitingWorker),
     promptInstall,
     applyUpdate,

@@ -36,8 +36,20 @@ export interface FoodItem {
   per100g: MacroValues
   defaultUnit: string
   units: FoodUnit[]
+  /** Authoritative reference citation (e.g. USDA NDB # / NNFTRI Iranian table) */
+  source?: string
+  /** True when cross-validated against a laboratory reference table; values remain approximate for home cooking */
+  verified?: boolean
   isCustom?: boolean
   isRecipe?: boolean
+  /** Runtime flag set when a built-in catalog item has an active user override */
+  isOverridden?: boolean
+}
+
+export interface FoodOverrideRecord {
+  food: FoodItem
+  baseCatalogVersion: string
+  updatedAt: number
 }
 
 export interface ParsedFoodItem {
@@ -78,6 +90,8 @@ export interface LoggedFoodEntry {
   protein: number
   carbs: number
   fat: number
+  /** Optional per-100g macro snapshot so quantity edits recompute accurately even if custom food is deleted */
+  per100g?: MacroValues
   sourceText?: string
 }
 
@@ -118,8 +132,11 @@ export interface UserGoals {
 export interface AppBackupData {
   version: number
   exportedAt: string
+  catalogVersion?: string
   goals: UserGoals
   foods: FoodItem[]
+  customFoods?: FoodItem[]
+  foodOverrides?: Record<string, FoodOverrideRecord>
   entries: LoggedFoodEntry[]
   waterByDate?: Record<string, number>
   weights?: WeightEntry[]

@@ -1,5 +1,18 @@
-import { AlertCircle, Bookmark, Check, Minus, Plus, Sparkles, UtensilsCrossed, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Bookmark,
+  Check,
+  Clock,
+  ExternalLink,
+  Flame,
+  Minus,
+  Plus,
+  Sparkles,
+  UtensilsCrossed,
+  X,
+} from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
+import { buildMissingFoodIssueUrl } from '../config/feedback'
 import { QUICK_MEAL_SUGGESTIONS } from '../data/iranianFoods'
 import {
   MEAL_TYPE_LABELS,
@@ -10,13 +23,18 @@ import {
   type MealType,
   type ParsedFoodItem,
 } from '../types/nutrition'
+import { computeRecentAndFrequentFoods } from '../utils/foodSuggestions'
+import {
+  recordLocalSubmissionMetrics,
+  recordUnmatchedPhraseTap,
+} from '../utils/localMetrics'
 import {
   calculateFoodMacros,
   extractCleanFoodName,
   parsePersianFoodInput,
   resolveFoodUnit,
 } from '../utils/persianFoodParser'
-import { formatFaNumber, formatQuantityFa } from '../utils/persianFormat'
+import { formatFaNumber, formatQuantityFa, getLocalDateKey } from '../utils/persianFormat'
 
 interface QuickEntryBarProps {
   foods: FoodItem[]
@@ -42,14 +60,14 @@ interface ChipOverride {
   disambiguated?: boolean
 }
 
+type QuickChipTab = 'frequent' | 'recent' | 'samples'
+
 const EMPTY_OVERRIDES: Record<string, ChipOverride> = {}
-const WELCOME_DISMISSED_KEY = 'kalorishomar_v1_welcome_dismissed'
 
 export function QuickEntryBar({
   foods,
   recentEntries,
   templates,
-  totalLoggedCount,
   inputText,
   onInputTextChange,
   mealType,
@@ -64,13 +82,7 @@ export function QuickEntryBar({
     text: string
     map: Record<string, ChipOverride>
   }>({ text: '', map: {} })
-  const [welcomeDismissed, setWelcomeDismissed] = useState(() => {
-    try {
-      return window.localStorage.getItem(WELCOME_DISMISSED_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
+  const [chipTab, setChipTab] = useState<QuickChipTab>('frequent')
 
   const activeOverrides =
     overridesByInput.text === inputText ? overridesByInput.map : EMPTY_OVERRIDES
@@ -127,6 +139,18 @@ export function QuickEntryBar({
     )
   }, [previewItems])
 
+  const { recentFoods, frequentFoods } = useMemo(
+    () => computeRecentAndFrequentFoods(recentEntries, foods, 8),
+    [recentEntries, foods],
+  )
+
+  const effectiveChipTab: QuickChipTab =
+    chipTab === 'frequent' && frequentFoods.length > 0
+      ? 'frequent'
+      : chipTab !== 'samples' && recentFoods.length > 0
+        ? 'recent'
+        : 'samples'
+
   const suggestionPills = useMemo(() => {
     const seen = new Set<string>()
     const list: string[] = []
@@ -136,7 +160,7 @@ export function QuickEntryBar({
       if (text && !seen.has(text)) {
         seen.add(text)
         list.push(text)
-        if (list.length >= 3) break
+        if (list.length >= 2) break
       }
     }
 
@@ -243,6 +267,11 @@ export function QuickEntryBar({
 
   const handleSubmit = () => {
     if (previewItems.length === 0) return
+    recordLocalSubmissionMetrics({
+      dateKey: getLocalDateKey(),
+      parsedItemsCount: previewItems.length,
+      unmatchedSegments: parseResult.unmatchedSegments,
+    })
     onSubmitItems(previewItems, mealType, inputText.trim())
     onInputTextChange('')
     setOverridesByInput({ text: '', map: {} })
@@ -261,17 +290,12 @@ export function QuickEntryBar({
     textareaRef.current?.focus()
   }
 
-  const handleDismissWelcome = () => {
-    setWelcomeDismissed(true)
-    try {
-      window.localStorage.setItem(WELCOME_DISMISSED_KEY, '1')
-    } catch {
-      // Ignore storage error
-    }
+  const handleAppendQuickFood = (food: FoodItem, unitName: string) => {
+    const phrase = `یک ${unitName} ${food.name}`
+    onInputTextChange(inputText.trim() ? `${inputText.trim()} و ${phrase}` : phrase)
+    setOverridesByInput({ text: '', map: {} })
+    textareaRef.current?.focus()
   }
-
-  const showFirstTimeTip =
-    totalLoggedCount === 0 && inputText.trim().length === 0 && !welcomeDismissed
 
   return (
     <section
@@ -287,7 +311,7 @@ export function QuickEntryBar({
           <div>
             <h2 className="text-sm font-semibold text-zinc-100 leading-tight">ثبت سریع غذا</h2>
             <p className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-              به زبان روزمره بنویسید؛ محاسبه تقریبی آنی انجام می‌شود
+              به زبان روزمره بنویسید؛ برآورد تقریبی آنی انجام می‌شود
             </p>
           </div>
         </div>
@@ -353,30 +377,6 @@ export function QuickEntryBar({
         )}
       </div>
 
-      {/* Non-blocking first-time onboarding tip */}
-      {showFirstTimeTip && (
-        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl bg-emerald-500/8 border border-emerald-500/20 px-3 py-2 text-xs">
-          <button
-            type="button"
-            onClick={() =>
-              handlePickSuggestion('دو کفگیر قورمه‌سبزی و یک کف دست سنگک و نصف لیوان دوغ')
-            }
-            className="text-right text-zinc-300 hover:text-emerald-300 transition-colors leading-relaxed"
-          >
-            <span className="text-emerald-400 font-semibold">شروع سریع:</span> همین الان این جمله را
-            امتحان کنید ← «دو کفگیر قورمه‌سبزی و یک کف دست سنگک»
-          </button>
-          <button
-            type="button"
-            onClick={handleDismissWelcome}
-            aria-label="بستن راهنمای شروع سریع"
-            className="w-6 h-6 rounded-lg hover:bg-emerald-500/15 text-zinc-400 hover:text-zinc-200 flex items-center justify-center shrink-0"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Live Preview Chips */}
       {previewItems.length > 0 && (
         <div className="mt-3.5 space-y-2.5 animate-fade-up" data-testid="live-preview-chips">
@@ -399,7 +399,7 @@ export function QuickEntryBar({
                           {item.food.name}
                         </span>
                         <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-300 tabular-nums-fa">
-                          {formatFaNumber(item.kcal)} کالری
+                          ~{formatFaNumber(item.kcal)} کالری
                         </span>
                         {item.isAmbiguous && (
                           <span
@@ -443,7 +443,6 @@ export function QuickEntryBar({
                       </div>
                     </div>
 
-                    {/* Quantity +/- and Remove Controls */}
                     <div className="flex items-center gap-1 shrink-0 mr-auto">
                       <button
                         type="button"
@@ -472,7 +471,6 @@ export function QuickEntryBar({
                     </div>
                   </div>
 
-                  {/* Low-confidence / Ambiguous disambiguation alternatives */}
                   {item.isAmbiguous && item.alternatives && item.alternatives.length > 0 && (
                     <div
                       data-testid="ambiguous-alternatives"
@@ -503,7 +501,7 @@ export function QuickEntryBar({
                 جمع تقریبی ({formatFaNumber(previewItems.length)} مورد):
               </span>
               <span className="font-bold text-emerald-400 text-sm">
-                {formatFaNumber(totalPreview.kcal)} کالری
+                ~{formatFaNumber(totalPreview.kcal)} کالری
               </span>
               <span className="hidden sm:inline text-zinc-400">
                 پ {formatFaNumber(totalPreview.protein, 1)}گ · ک{' '}
@@ -525,7 +523,7 @@ export function QuickEntryBar({
         </div>
       )}
 
-      {/* Unmatched segments: 1-click Add as New Food (with quantity/unit stripped) */}
+      {/* Unmatched segments: 1-click Add as New Food + Report Missing Food via GitHub Issue */}
       {parseResult.unmatchedSegments.length > 0 && inputText.trim().length >= 2 && (
         <div
           data-testid="unmatched-segments-box"
@@ -535,16 +533,32 @@ export function QuickEntryBar({
           {parseResult.unmatchedSegments.map((seg) => {
             const cleanName = extractCleanFoodName(seg, foods)
             return (
-              <button
-                key={seg}
-                type="button"
-                data-testid="add-unmatched-food-btn"
-                onClick={() => onRequestAddCustomFood(cleanName)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E1E22] hover:bg-[#27272D] border border-[#2E2E35] px-2.5 py-1 text-zinc-200 transition-colors"
-              >
-                <span>«{cleanName}»</span>
-                <span className="text-emerald-400 font-semibold">+ افزودن به‌عنوان غذای جدید</span>
-              </button>
+              <div key={seg} className="inline-flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  data-testid="add-unmatched-food-btn"
+                  onClick={() => {
+                    recordUnmatchedPhraseTap(cleanName, getLocalDateKey())
+                    onRequestAddCustomFood(cleanName)
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E1E22] hover:bg-[#27272D] border border-[#2E2E35] px-2.5 py-1 text-zinc-200 transition-colors"
+                >
+                  <span>«{cleanName}»</span>
+                  <span className="text-emerald-400 font-semibold">+ افزودن غذای شخصی</span>
+                </button>
+                <a
+                  href={buildMissingFoodIssueUrl(cleanName)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="report-missing-food-link"
+                  onClick={() => recordUnmatchedPhraseTap(cleanName, getLocalDateKey())}
+                  className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#27272D] border border-[#2E2E35] px-2 py-1 text-[11px] text-amber-300 transition-colors"
+                  title="پیشنهاد افزودن این غذا به کاتالوگ همگانی در گیت‌هاب"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>گزارش غذای ناموجود</span>
+                </a>
+              </div>
             )
           })}
         </div>
@@ -591,15 +605,91 @@ export function QuickEntryBar({
         </div>
       )}
 
-      {/* Quick-Tap Suggestion Pills */}
-      {inputText.trim().length === 0 && (
-        <div className="mt-3 pt-3 border-t border-[#222226]">
-          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mb-2">
+      {/* Phase 3: Frequent, Recent & Sample Quick-Tap Pills */}
+      <div className="mt-3 pt-3 border-t border-[#222226]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>پیشنهادهای سریع با یک لمس:</span>
+            <span>انتخاب سریع با یک لمس:</span>
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
-            {suggestionPills.map((pill) => (
+
+          {(frequentFoods.length > 0 || recentFoods.length > 0) && (
+            <div className="inline-flex items-center gap-1 text-[11px]">
+              {frequentFoods.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setChipTab('frequent')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors ${
+                    effectiveChipTab === 'frequent'
+                      ? 'bg-emerald-500/15 text-emerald-300 font-semibold'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Flame className="w-3 h-3" />
+                  <span>پرتکرار</span>
+                </button>
+              )}
+              {recentFoods.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setChipTab('recent')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors ${
+                    effectiveChipTab === 'recent'
+                      ? 'bg-sky-500/15 text-sky-300 font-semibold'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Clock className="w-3 h-3" />
+                  <span>اخیر</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setChipTab('samples')}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  effectiveChipTab === 'samples'
+                    ? 'bg-amber-500/15 text-amber-300 font-semibold'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                نمونه وعده‌ها
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+          {effectiveChipTab === 'frequent' &&
+            frequentFoods.map((item) => (
+              <button
+                key={item.food.id}
+                type="button"
+                data-testid="frequent-food-chip"
+                onClick={() => handleAppendQuickFood(item.food, item.lastUnit)}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-[#1E1E22] hover:bg-emerald-500/15 border border-[#2B2B31] px-3 py-1.5 text-xs text-zinc-200 transition-colors"
+              >
+                <span>+ {item.food.name}</span>
+                <span className="text-[10px] text-emerald-400 tabular-nums-fa">
+                  ({formatFaNumber(item.count)}×)
+                </span>
+              </button>
+            ))}
+
+          {effectiveChipTab === 'recent' &&
+            recentFoods.map((item) => (
+              <button
+                key={item.food.id}
+                type="button"
+                data-testid="recent-food-chip"
+                onClick={() => handleAppendQuickFood(item.food, item.lastUnit)}
+                className="shrink-0 rounded-full bg-[#1E1E22] hover:bg-sky-500/15 border border-[#2B2B31] px-3 py-1.5 text-xs text-zinc-200 transition-colors"
+              >
+                + یک {item.lastUnit} {item.food.name}
+              </button>
+            ))}
+
+          {effectiveChipTab === 'samples' &&
+            suggestionPills.map((pill) => (
               <button
                 key={pill}
                 type="button"
@@ -609,9 +699,8 @@ export function QuickEntryBar({
                 {pill}
               </button>
             ))}
-          </div>
         </div>
-      )}
+      </div>
     </section>
   )
 }

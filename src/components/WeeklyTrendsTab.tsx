@@ -1,4 +1,16 @@
-import { BarChart3, Flame, Plus, Scale, Target, Trash2, TrendingUp } from 'lucide-react'
+import {
+  BarChart3,
+  Check,
+  Copy,
+  Flame,
+  ImageDown,
+  Plus,
+  Scale,
+  Search,
+  Target,
+  Trash2,
+  TrendingUp,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   Bar,
@@ -13,15 +25,25 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { LoggedFoodEntry, UserGoals, WeightEntry } from '../types/nutrition'
+import { APP_CONFIG } from '../config/env'
+import {
+  MEAL_TYPE_LABELS,
+  type LoggedFoodEntry,
+  type UserGoals,
+  type WeightEntry,
+} from '../types/nutrition'
+import { buildPersianWeeklyReport } from '../utils/dailySummaryShare'
+import { toSpaceKey } from '../utils/persianFoodParser'
 import {
   dateFromKey,
   formatFaNumber,
   formatJalaliDate,
+  formatQuantityFa,
   getLastNDays,
   getLocalDateKey,
   toAsciiDigits,
 } from '../utils/persianFormat'
+import { exportWeeklySummaryImage } from '../utils/reportImageExport'
 
 interface WeeklyTrendsTabProps {
   entries: LoggedFoodEntry[]
@@ -66,11 +88,9 @@ function CalorieChartTooltip({ active, payload, goalKcal }: CustomTooltipProps) 
         {point.isToday ? `امروز (${point.jalaliShort})` : point.jalaliFull}
       </div>
       <div className="flex items-center justify-between gap-4 tabular-nums-fa">
-        <span className="text-zinc-400">کالری مصرفی:</span>
+        <span className="text-zinc-400">کالری تقریبی:</span>
         <span
-          className={`font-bold ${
-            point.kcal > goalKcal ? 'text-rose-400' : 'text-emerald-400'
-          }`}
+          className={`font-bold ${point.kcal > goalKcal ? 'text-amber-300' : 'text-emerald-400'}`}
         >
           {formatFaNumber(point.kcal)} کالری
         </span>
@@ -84,10 +104,10 @@ function CalorieChartTooltip({ active, payload, goalKcal }: CustomTooltipProps) 
       )}
       <div className="mt-1 text-[10px] text-zinc-400 tabular-nums-fa">
         {point.kcal === 0
-          ? 'ثبتی انجام نشده'
+          ? 'بدون ثبت در این روز'
           : diff > 0
-            ? `${formatFaNumber(diff)} کالری بیشتر از هدف`
-            : `${formatFaNumber(Math.abs(diff))} کالری کمتر از هدف`}
+            ? `${formatFaNumber(diff)} کالری بالاتر از محدوده هدف`
+            : `${formatFaNumber(Math.abs(diff))} کالری کمتر از سقف هدف`}
       </div>
     </div>
   )
@@ -124,34 +144,31 @@ export function WeeklyTrendsTab({
 }: WeeklyTrendsTabProps) {
   const [rangeDays, setRangeDays] = useState<7 | 30>(7)
   const [weightInput, setWeightInput] = useState('')
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [weeklyCopied, setWeeklyCopied] = useState(false)
 
   const days = useMemo(() => getLastNDays(rangeDays, dateFromKey(todayKey)), [rangeDays, todayKey])
+  const last7Days = useMemo(() => getLastNDays(7, dateFromKey(todayKey)), [todayKey])
 
-  const chartData = useMemo<DayChartPoint[]>(() => {
-    const totalsByDay = new Map<
-      string,
-      { kcal: number; protein: number; carbs: number; fat: number }
-    >()
-
+  const totalsByDay = useMemo(() => {
+    const map = new Map<string, { kcal: number; protein: number; carbs: number; fat: number }>()
     for (const e of entries) {
-      const curr = totalsByDay.get(e.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+      const curr = map.get(e.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
       curr.kcal += e.kcal
       curr.protein += e.protein
       curr.carbs += e.carbs
       curr.fat += e.fat
-      totalsByDay.set(e.dateKey, curr)
+      map.set(e.dateKey, curr)
     }
+    return map
+  }, [entries])
 
+  const chartData = useMemo<DayChartPoint[]>(() => {
     return days.map((slot) => {
       const totals = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
       return {
         dateKey: slot.dateKey,
-        axisLabel:
-          rangeDays === 7
-            ? slot.isToday
-              ? 'امروز'
-              : slot.weekdayCompact
-            : slot.jalaliShort,
+        axisLabel: rangeDays === 7 ? (slot.isToday ? 'امروز' : slot.weekdayCompact) : slot.jalaliShort,
         jalaliShort: slot.jalaliShort,
         jalaliFull: slot.jalaliFull,
         isToday: slot.isToday,
@@ -161,7 +178,7 @@ export function WeeklyTrendsTab({
         fat: Math.round(totals.fat * 10) / 10,
       }
     })
-  }, [days, entries, rangeDays])
+  }, [days, rangeDays, totalsByDay])
 
   const stats = useMemo(() => {
     const activeDays = chartData.filter((d) => d.kcal > 0)
@@ -210,6 +227,90 @@ export function WeeklyTrendsTab({
     }
   }, [chartData, goals.dailyKcal])
 
+  const weeklyReportData = useMemo(() => {
+    const sevenPts = last7Days.map((slot) => {
+      const t = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+      return {
+        label: slot.isToday ? 'امروز' : slot.weekdayCompact,
+        jalaliShort: slot.jalaliShort,
+        kcal: Math.round(t.kcal),
+        protein: t.protein,
+        carbs: t.carbs,
+        fat: t.fat,
+      }
+    })
+    const active = sevenPts.filter((d) => d.kcal > 0)
+    const div = active.length || 1
+    const periodLabel = `${sevenPts[0]?.jalaliShort ?? ''} تا ${sevenPts[sevenPts.length - 1]?.jalaliShort ?? ''}`
+    return {
+      periodLabel,
+      activeDaysCount: active.length,
+      avgKcal: active.length > 0 ? Math.round(sevenPts.reduce((s, d) => s + d.kcal, 0) / div) : 0,
+      withinGoalDays: active.filter((d) => d.kcal <= goals.dailyKcal).length,
+      avgProtein:
+        active.length > 0
+          ? Math.round((sevenPts.reduce((s, d) => s + d.protein, 0) / div) * 10) / 10
+          : 0,
+      avgCarbs:
+        active.length > 0
+          ? Math.round((sevenPts.reduce((s, d) => s + d.carbs, 0) / div) * 10) / 10
+          : 0,
+      avgFat:
+        active.length > 0
+          ? Math.round((sevenPts.reduce((s, d) => s + d.fat, 0) / div) * 10) / 10
+          : 0,
+      days: sevenPts.map((d) => ({ label: d.label, kcal: d.kcal })),
+    }
+  }, [goals.dailyKcal, last7Days, totalsByDay])
+
+  const handleCopyWeeklyReport = async () => {
+    const text = buildPersianWeeklyReport({
+      appName: APP_CONFIG.appName,
+      goalKcal: goals.dailyKcal,
+      ...weeklyReportData,
+    })
+    try {
+      await navigator.clipboard.writeText(text)
+      setWeeklyCopied(true)
+      window.setTimeout(() => setWeeklyCopied(false), 2000)
+    } catch {
+      // Ignore clipboard restriction
+    }
+  }
+
+  const handleExportWeeklyImage = async () => {
+    await exportWeeklySummaryImage(
+      {
+        appName: APP_CONFIG.appName,
+        goalKcal: goals.dailyKcal,
+        periodLabel: weeklyReportData.periodLabel,
+        avgKcal: weeklyReportData.avgKcal,
+        activeDaysCount: weeklyReportData.activeDaysCount,
+        avgProtein: weeklyReportData.avgProtein,
+        avgCarbs: weeklyReportData.avgCarbs,
+        avgFat: weeklyReportData.avgFat,
+        days: weeklyReportData.days,
+      },
+      `kalorishomar-weekly-${todayKey}.png`,
+    )
+  }
+
+  // Phase 3: Instant History Search across all logged meals
+  const historyResults = useMemo(() => {
+    const q = toSpaceKey(historyQuery)
+    if (!q) return []
+    return entries
+      .filter((e) => {
+        const mealLabel = MEAL_TYPE_LABELS[e.mealType]
+        const jalali = formatJalaliDate(dateFromKey(e.dateKey), 'medium')
+        const haystack = toSpaceKey(
+          `${e.foodName} ${e.unit} ${mealLabel} ${jalali} ${e.sourceText ?? ''}`,
+        )
+        return haystack.includes(q)
+      })
+      .slice(0, 30)
+  }, [entries, historyQuery])
+
   const weightChartPoints = useMemo(() => {
     return weights.slice(-30).map((w) => {
       const d = dateFromKey(w.dateKey)
@@ -242,7 +343,7 @@ export function WeeklyTrendsTab({
 
   return (
     <div className="space-y-4 animate-fade-up" data-testid="weekly-trends-tab">
-      {/* KPI Summary Strip */}
+      {/* KPI Summary Strip (Supportive, non-pressuring copy) */}
       <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
         <div className="card-surface rounded-2xl p-3.5 sm:p-4">
           <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-zinc-400">
@@ -256,27 +357,27 @@ export function WeeklyTrendsTab({
             {formatFaNumber(stats.avgKcal)}
           </div>
           <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-            کالری ({formatFaNumber(stats.activeDaysCount)} روز فعال)
+            کالری ({formatFaNumber(stats.activeDaysCount)} روز دارای ثبت)
           </div>
         </div>
 
         <div className="card-surface rounded-2xl p-3.5 sm:p-4">
           <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-zinc-400">
             <Target className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>هدف روزانه</span>
+            <span>هدف انتخابی</span>
           </div>
           <div className="text-lg sm:text-2xl font-extrabold text-zinc-50 mt-1.5 tabular-nums-fa">
             {formatFaNumber(goals.dailyKcal)}
           </div>
           <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-            {formatFaNumber(stats.withinGoalDays)} روز در محدوده
+            {formatFaNumber(stats.withinGoalDays)} روز در محدوده هدف
           </div>
         </div>
 
         <div className="card-surface rounded-2xl p-3.5 sm:p-4">
           <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-zinc-400">
             <TrendingUp className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <span>تداوم ثبت</span>
+            <span>همراهی اخیر</span>
           </div>
           <div
             data-testid="weekly-streak-days"
@@ -284,13 +385,13 @@ export function WeeklyTrendsTab({
           >
             {formatFaNumber(streakDays)} روز
           </div>
-          <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-            جمع دوره: {formatFaNumber(stats.totalKcal)}
+          <div className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
+            {streakDays === 0 ? 'وقفه طبیعی است؛ هر زمان آماده بودید' : 'پیوسته تا امروز یا دیروز'}
           </div>
         </div>
       </div>
 
-      {/* 7-Day / 30-Day Calorie Bar Chart */}
+      {/* 7-Day / 30-Day Calorie Bar Chart + Shareable Weekly Report */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5"
         aria-label="نمودار کالری هفتگی و ماهانه"
@@ -310,7 +411,36 @@ export function WeeklyTrendsTab({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="share-weekly-image-btn"
+              onClick={() => void handleExportWeeklyImage()}
+              className="inline-flex items-center gap-1 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2C2C33] px-2.5 py-1.5 text-[11px] text-zinc-200 transition-colors"
+              title="خروجی تصویر کارت گزارش هفتگی (PNG)"
+            >
+              <ImageDown className="w-3.5 h-3.5 text-emerald-400" />
+              <span>تصویر هفتگی</span>
+            </button>
+            <button
+              type="button"
+              id="copy-weekly-report-btn"
+              onClick={() => void handleCopyWeeklyReport()}
+              className="inline-flex items-center gap-1 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2C2C33] px-2.5 py-1.5 text-[11px] text-zinc-200 transition-colors"
+            >
+              {weeklyCopied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-300">کپی شد</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>گزارش متنی</span>
+                </>
+              )}
+            </button>
+
             <div className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]">
               <button
                 type="button"
@@ -340,7 +470,6 @@ export function WeeklyTrendsTab({
           </div>
         </div>
 
-        {/* LTR wrapper keeps Recharts SVG axes and tooltips cleanly positioned */}
         <div dir="ltr" className="w-full h-64 sm:h-72" data-testid="weekly-bar-chart">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
@@ -386,7 +515,7 @@ export function WeeklyTrendsTab({
                   let fill = 'var(--chart-empty-bar)'
                   if (entry.kcal > 0) {
                     if (isOver) {
-                      fill = entry.isToday ? '#F43F5E' : '#E11D48'
+                      fill = entry.isToday ? '#FBBF24' : '#D97706'
                     } else {
                       fill = entry.isToday ? '#10B981' : '#059669'
                     }
@@ -398,7 +527,6 @@ export function WeeklyTrendsTab({
           </ResponsiveContainer>
         </div>
 
-        {/* Clickable Jalali dates strip (7-day full row, or recent active days in 30-day mode) */}
         {rangeDays === 7 ? (
           <div
             dir="ltr"
@@ -445,10 +573,80 @@ export function WeeklyTrendsTab({
         )}
       </section>
 
-      {/* Weight Tracking & Progress Chart */}
+      {/* Phase 3: Search Across Meal History */}
+      <section
+        className="card-surface rounded-2xl p-4 sm:p-5 space-y-3"
+        aria-label="جستجو در تاریخچه وعده‌ها"
+        data-testid="history-search-section"
+      >
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-100">جستجو در تاریخچه وعده‌ها</h2>
+          <p className="text-[11px] text-zinc-400 mt-0.5">
+            جستجو بر اساس نام غذا، نوع وعده (صبحانه/ناهار/شام) یا تاریخ شمسی
+          </p>
+        </div>
+
+        <div className="relative">
+          <Search className="w-4 h-4 text-zinc-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="search"
+            id="history-search-input"
+            value={historyQuery}
+            onChange={(e) => setHistoryQuery(e.target.value)}
+            placeholder="مثلاً: قورمه‌سبزی، سنگک، ناهار، آبان..."
+            className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none pr-10 pl-3.5 py-2.5 text-xs sm:text-sm text-zinc-100 placeholder:text-zinc-500"
+          />
+        </div>
+
+        {historyQuery.trim() !== '' && (
+          <div className="space-y-2">
+            {historyResults.length === 0 ? (
+              <p className="text-xs text-zinc-400 py-2 text-center">
+                وعده‌ای مطابق با «{historyQuery.trim()}» در تاریخچه یافت نشد.
+              </p>
+            ) : (
+              <>
+                <div className="text-[11px] text-zinc-400 tabular-nums-fa">
+                  {formatFaNumber(historyResults.length)} مورد یافت شد (مجموع ~
+                  {formatFaNumber(historyResults.reduce((s, e) => s + e.kcal, 0))} کالری):
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-1.5 pr-0.5">
+                  {historyResults.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-testid="history-search-result-row"
+                      onClick={() => onSelectDate(item.dateKey)}
+                      className="w-full rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2B2B33] px-3 py-2 flex items-center justify-between gap-2 text-right text-xs transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-semibold text-zinc-100">{item.foodName}</span>
+                        <span className="text-zinc-400 mr-2 tabular-nums-fa">
+                          {formatQuantityFa(item.quantity)} {item.unit} ·{' '}
+                          {MEAL_TYPE_LABELS[item.mealType]}
+                        </span>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2 tabular-nums-fa text-[11px]">
+                        <span className="text-emerald-400 font-semibold">
+                          ~{formatFaNumber(item.kcal)} ک
+                        </span>
+                        <span className="text-zinc-400">
+                          {formatJalaliDate(dateFromKey(item.dateKey), 'short')}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Weight Tracking & Progress Chart (Neutral, non-pressuring copy) */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5 space-y-4"
-        aria-label="ثبت وزن و نمودار پیشرفت"
+        aria-label="ثبت وزن و نمودار روند"
         data-testid="weight-tracker-section"
       >
         <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -457,15 +655,15 @@ export function WeeklyTrendsTab({
               <Scale className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">ثبت وزن و نمودار پیشرفت</h2>
-              <p className="text-[11px] text-zinc-400">
+              <h2 className="text-sm font-semibold text-zinc-100">ثبت اختیاری وزن و روند کلی</h2>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
                 {latestWeight
-                  ? `آخرین وزن: ${formatFaNumber(latestWeight.weightKg, 1)} کیلوگرم${
+                  ? `آخرین ثبت: ${formatFaNumber(latestWeight.weightKg, 1)} کیلوگرم${
                       weightDelta !== null
-                        ? ` (${weightDelta > 0 ? '+' : ''}${formatFaNumber(weightDelta, 1)} کیلوگرم تغییر)`
+                        ? ` (تغییر نسبت به ابتدای دوره: ${weightDelta > 0 ? '+' : ''}${formatFaNumber(weightDelta, 1)} ک‌گ)`
                         : ''
-                    }`
-                  : 'وزن خود را به‌صورت هفتگی یا روزانه ثبت کنید'}
+                    } — نوسان روزانه آب بدن طبیعی است`
+                  : 'نوسان روزانه وزن طبیعی است؛ در صورت تمایل روند چند هفته‌ای را دنبال کنید'}
               </p>
             </div>
           </div>
@@ -564,7 +762,7 @@ export function WeeklyTrendsTab({
               ترکیب درشت‌مغذی‌های {rangeDays === 7 ? 'هفته' : 'ماه'}
             </h2>
             <p className="text-[11px] text-zinc-400 mt-0.5">
-              سهم درصدی هر درشت‌مغذی از کل کالری مصرفی (تقریبی)
+              سهم درصدی هر درشت‌مغذی از کل کالری مصرفی (برآورد تقریبی)
             </p>
           </div>
         </div>

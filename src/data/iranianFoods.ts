@@ -8,6 +8,13 @@ import { STEWS_AND_MAINS } from './foods/stewsAndMains'
 export { NUTRITION_DATA_SOURCES }
 
 /**
+ * Semantic catalog revision stamp. Built-in foods are always loaded directly from code
+ * (only user custom foods and explicit overrides are persisted in localStorage), so
+ * bumping CATALOG_VERSION delivers nutrition refinements to all existing users cleanly.
+ */
+export const CATALOG_VERSION = '2026.11.2'
+
+/**
  * Deduplicated curated database of 315+ everyday Iranian home-cooked dishes,
  * regional specialties, breads, fast foods, dairy, sweets, nuts, fruits,
  * traditional drinks, and common supermarket items.
