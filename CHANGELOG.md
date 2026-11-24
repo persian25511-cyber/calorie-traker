@@ -4,6 +4,15 @@ All notable changes to **KaloriShomar (کالری‌شمار روزمره)** are
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-11-24
+
+### Added
+- **Complete Interactive Macronutrient Charts:** Added zero-dependency SVG `MacroDonutChart` (exact Atwater `4/4/9 kcal/g` caloric share `%` vs. user goal `%` + interactive hover/tap readout + fiber strip) and `MacroStackedBarChart` (daily stacked Protein/Carbs/Fat energy composition across 7-day and 30-day trends) in `src/components/charts/NativeCharts.tsx`.
+- **10-Micronutrient Database & Interactive Inspector (`ریزمغزی‌ها`):**
+  - Added per-100g profiles across all 322 built-in foods (`CATALOG_VERSION = 2026.11.3`, `src/data/foods/micronutrientRegistry.ts`) covering **Iron (`آهن`), Calcium (`کلسیم`), Potassium (`پتاسیم`), Magnesium (`منیزیم`), Zinc (`روی`), Vitamin C, Vitamin D, Vitamin B12, Vitamin A**, and **Sodium (`سدیم` daily upper-limit ceiling)**.
+  - Added `MicronutrientRadarChart` (9-axis SVG balance spider chart) and `MicronutrientPanel` (`src/components/MicronutrientPanel.tsx`) with Vitamin/Mineral filters, `% DV` progress bars, upper-limit warnings for Sodium (`2300 mg`), tap-to-inspect **Top Contributing Foods** from logged meals, and rich Iranian food source hints.
+  - Wired into both `DailySummaryCard` (3-tab switcher on Home: `خلاصه انرژی` / `نمودار درشت‌مغذی` / `ریزمغزی‌ها`), `WeeklyTrendsTab` (7-day & 30-day period averages), `RecipeBuilderForm` (automatic ingredient micronutrient summation), and `SingleFoodForm` (collapsible nutrition-label micronutrient inputs), with seamless retroactive fallback for previously logged meals.
+
 ## [1.2.0] - 2026-11-24
 
 ### Added

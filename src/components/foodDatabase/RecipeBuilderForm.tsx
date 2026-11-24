@@ -69,6 +69,18 @@ export function RecipeBuilderForm({
     let carbs = 0
     let fat = 0
     let fiber = 0
+    const microSum = {
+      ironMg: 0,
+      calciumMg: 0,
+      potassiumMg: 0,
+      magnesiumMg: 0,
+      zincMg: 0,
+      sodiumMg: 0,
+      vitaminCMg: 0,
+      vitaminDMcg: 0,
+      vitaminB12Mcg: 0,
+      vitaminAMcg: 0,
+    }
 
     for (const ing of recipeIngredients) {
       const f = foodById.get(ing.foodId)
@@ -82,6 +94,9 @@ export function RecipeBuilderForm({
       carbs += calc.carbs
       fat += calc.fat
       fiber += calc.fiber
+      for (const k of Object.keys(microSum) as Array<keyof typeof microSum>) {
+        microSum[k] += calc.micronutrients[k] ?? 0
+      }
     }
 
     const yieldPct = Math.max(25, Math.min(400, parsePositiveNum(cookingYieldPct, 100)))
@@ -104,6 +119,18 @@ export function RecipeBuilderForm({
               carbs: Math.round((carbs / cookedTotalGrams) * 1000) / 10,
               fat: Math.round((fat / cookedTotalGrams) * 1000) / 10,
               fiber: Math.round((fiber / cookedTotalGrams) * 1000) / 10,
+              micronutrients: {
+                ironMg: Math.round((microSum.ironMg / cookedTotalGrams) * 1000) / 10,
+                calciumMg: Math.round((microSum.calciumMg / cookedTotalGrams) * 100),
+                potassiumMg: Math.round((microSum.potassiumMg / cookedTotalGrams) * 100),
+                magnesiumMg: Math.round((microSum.magnesiumMg / cookedTotalGrams) * 100),
+                zincMg: Math.round((microSum.zincMg / cookedTotalGrams) * 1000) / 10,
+                sodiumMg: Math.round((microSum.sodiumMg / cookedTotalGrams) * 100),
+                vitaminCMg: Math.round((microSum.vitaminCMg / cookedTotalGrams) * 100),
+                vitaminDMcg: Math.round((microSum.vitaminDMcg / cookedTotalGrams) * 1000) / 10,
+                vitaminB12Mcg: Math.round((microSum.vitaminB12Mcg / cookedTotalGrams) * 1000) / 10,
+                vitaminAMcg: Math.round((microSum.vitaminAMcg / cookedTotalGrams) * 100),
+              },
             }
           : { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
     }

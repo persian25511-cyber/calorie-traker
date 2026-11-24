@@ -1,6 +1,7 @@
 import {
   DEFAULT_USER_GOALS,
   MEAL_TYPE_ORDER,
+  MICRONUTRIENT_SPECS,
   type FoodCategory,
   type FoodItem,
   type FoodOverrideRecord,
@@ -10,6 +11,7 @@ import {
   type MealTemplate,
   type MealTemplateItem,
   type MealType,
+  type MicronutrientValues,
   type RecipeIngredientRecord,
   type UserGoals,
   type WeightEntry,
@@ -29,16 +31,33 @@ export function isFiniteNonNegative(val: unknown): val is number {
   return typeof val === 'number' && Number.isFinite(val) && val >= 0
 }
 
+function sanitizeOptionalMicronutrients(raw: unknown): Partial<MicronutrientValues> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const src = raw as Partial<MicronutrientValues>
+  const out: Partial<MicronutrientValues> = {}
+  let hasAny = false
+  for (const spec of MICRONUTRIENT_SPECS) {
+    const val = src[spec.key]
+    if (isFiniteNonNegative(val)) {
+      out[spec.key] = val
+      hasAny = true
+    }
+  }
+  return hasAny ? out : undefined
+}
+
 function sanitizeOptionalPer100g(raw: unknown): MacroValues | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const m = raw as Partial<MacroValues>
   if (!isFiniteNonNegative(m.kcal) || kcalIsZero(m.kcal)) return undefined
+  const micronutrients = sanitizeOptionalMicronutrients(m.micronutrients)
   return {
     kcal: m.kcal,
     protein: isFiniteNonNegative(m.protein) ? m.protein : 0,
     carbs: isFiniteNonNegative(m.carbs) ? m.carbs : 0,
     fat: isFiniteNonNegative(m.fat) ? m.fat : 0,
     ...(isFiniteNonNegative(m.fiber) ? { fiber: m.fiber } : {}),
+    ...(micronutrients ? { micronutrients } : {}),
   }
 }
 
@@ -137,6 +156,8 @@ export function sanitizeImportedFood(raw: unknown): FoodItem | null {
       ? Math.round(f.cookingYieldPct)
       : undefined
 
+  const cleanMicro = sanitizeOptionalMicronutrients(f.per100g.micronutrients)
+
   return {
     id: f.id.trim(),
     name: f.name.trim(),
@@ -148,6 +169,7 @@ export function sanitizeImportedFood(raw: unknown): FoodItem | null {
       carbs: isFiniteNonNegative(carbs) ? carbs : 0,
       fat: isFiniteNonNegative(fat) ? fat : 0,
       ...(isFiniteNonNegative(fiber) ? { fiber } : {}),
+      ...(cleanMicro ? { micronutrients: cleanMicro } : {}),
     },
     defaultUnit,
     units: cleanUnits,
@@ -218,6 +240,7 @@ export function sanitizeImportedEntry(raw: unknown): LoggedFoodEntry | null {
       : 1
 
   const per100g = sanitizeOptionalPer100g(e.per100g)
+  const micronutrients = sanitizeOptionalMicronutrients(e.micronutrients)
 
   return {
     id: e.id.trim(),
@@ -240,6 +263,7 @@ export function sanitizeImportedEntry(raw: unknown): LoggedFoodEntry | null {
     carbs: isFiniteNonNegative(e.carbs) ? e.carbs : 0,
     fat: isFiniteNonNegative(e.fat) ? e.fat : 0,
     ...(isFiniteNonNegative(e.fiber) ? { fiber: e.fiber } : {}),
+    ...(micronutrients ? { micronutrients } : {}),
     ...(typeof e.modifierLabel === 'string' && e.modifierLabel.trim()
       ? { modifierLabel: e.modifierLabel.trim() }
       : {}),

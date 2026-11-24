@@ -432,6 +432,7 @@ export function useNutritionStore() {
         carbs: item.carbs,
         fat: item.fat,
         fiber: item.fiber ?? 0,
+        ...(item.micronutrients ? { micronutrients: item.micronutrients } : {}),
         ...(item.modifierLabel ? { modifierLabel: item.modifierLabel } : {}),
         per100g: { ...item.food.per100g },
         sourceText,

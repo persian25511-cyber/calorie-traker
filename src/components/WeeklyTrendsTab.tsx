@@ -4,9 +4,11 @@ import {
   Copy,
   Flame,
   ImageDown,
+  PieChart,
   Plus,
   Scale,
   Search,
+  Sparkles,
   Target,
   Trash2,
   TrendingUp,
@@ -15,11 +17,13 @@ import { useMemo, useState } from 'react'
 import { APP_CONFIG } from '../config/env'
 import {
   getMealTypeLabels,
+  type FoodItem,
   type LoggedFoodEntry,
   type UserGoals,
   type WeightEntry,
 } from '../types/nutrition'
 import { buildPersianWeeklyReport } from '../utils/dailySummaryShare'
+import { computeMacroEnergySplit } from '../utils/micronutrients'
 import { toSpaceKey } from '../utils/persianFoodParser'
 import {
   dateFromKey,
@@ -31,14 +35,18 @@ import {
   toAsciiDigits,
 } from '../utils/persianFormat'
 import { exportWeeklySummaryImage } from '../utils/reportImageExport'
+import { MicronutrientPanel } from './MicronutrientPanel'
 import {
   CalorieBarChart,
+  MacroDonutChart,
+  MacroStackedBarChart,
   WeightLineChart,
   type CalorieBarPoint,
 } from './charts/NativeCharts'
 
 interface WeeklyTrendsTabProps {
   entries: LoggedFoodEntry[]
+  foods: FoodItem[]
   goals: UserGoals
   weights: WeightEntry[]
   streakDays: number
@@ -50,6 +58,7 @@ interface WeeklyTrendsTabProps {
 
 export function WeeklyTrendsTab({
   entries,
+  foods,
   goals,
   weights,
   streakDays,
@@ -67,14 +76,24 @@ export function WeeklyTrendsTab({
   const days = useMemo(() => getLastNDays(rangeDays, dateFromKey(todayKey)), [rangeDays, todayKey])
   const last7Days = useMemo(() => getLastNDays(7, dateFromKey(todayKey)), [todayKey])
 
+  const rangeDateKeySet = useMemo(() => new Set(days.map((d) => d.dateKey)), [days])
+  const rangeEntries = useMemo(
+    () => entries.filter((e) => rangeDateKeySet.has(e.dateKey)),
+    [entries, rangeDateKeySet],
+  )
+
   const totalsByDay = useMemo(() => {
-    const map = new Map<string, { kcal: number; protein: number; carbs: number; fat: number }>()
+    const map = new Map<
+      string,
+      { kcal: number; protein: number; carbs: number; fat: number; fiber: number }
+    >()
     for (const e of entries) {
-      const curr = map.get(e.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+      const curr = map.get(e.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
       curr.kcal += e.kcal
       curr.protein += e.protein
       curr.carbs += e.carbs
       curr.fat += e.fat
+      curr.fiber += e.fiber ?? 0
       map.set(e.dateKey, curr)
     }
     return map
@@ -82,7 +101,13 @@ export function WeeklyTrendsTab({
 
   const chartData = useMemo<CalorieBarPoint[]>(() => {
     return days.map((slot) => {
-      const totals = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+      const totals = totalsByDay.get(slot.dateKey) ?? {
+        kcal: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+      }
       return {
         dateKey: slot.dateKey,
         axisLabel: rangeDays === 7 ? (slot.isToday ? 'امروز' : slot.weekdayCompact) : slot.jalaliShort,
@@ -93,6 +118,7 @@ export function WeeklyTrendsTab({
         protein: Math.round(totals.protein * 10) / 10,
         carbs: Math.round(totals.carbs * 10) / 10,
         fat: Math.round(totals.fat * 10) / 10,
+        fiber: Math.round(totals.fiber * 10) / 10,
       }
     })
   }, [days, rangeDays, totalsByDay])
@@ -105,22 +131,26 @@ export function WeeklyTrendsTab({
     const totalProtein = chartData.reduce((s, d) => s + d.protein, 0)
     const totalCarbs = chartData.reduce((s, d) => s + d.carbs, 0)
     const totalFat = chartData.reduce((s, d) => s + d.fat, 0)
+    const totalFiber = chartData.reduce((s, d) => s + (d.fiber ?? 0), 0)
 
     const avgKcal = activeDays.length > 0 ? Math.round(totalKcal / divisor) : 0
     const avgProtein = activeDays.length > 0 ? Math.round((totalProtein / divisor) * 10) / 10 : 0
     const avgCarbs = activeDays.length > 0 ? Math.round((totalCarbs / divisor) * 10) / 10 : 0
     const avgFat = activeDays.length > 0 ? Math.round((totalFat / divisor) * 10) / 10 : 0
+    const avgFiber = activeDays.length > 0 ? Math.round((totalFiber / divisor) * 10) / 10 : 0
 
     const withinGoalDays = activeDays.filter((d) => d.kcal <= goals.dailyKcal).length
 
-    const proteinKcal = totalProtein * 4
-    const carbsKcal = totalCarbs * 4
-    const fatKcal = totalFat * 9
-    const macroKcalSum = proteinKcal + carbsKcal + fatKcal
-
-    const proteinPct = macroKcalSum > 0 ? Math.round((proteinKcal / macroKcalSum) * 100) : 0
-    const carbsPct = macroKcalSum > 0 ? Math.round((carbsKcal / macroKcalSum) * 100) : 0
-    const fatPct = macroKcalSum > 0 ? Math.max(0, 100 - proteinPct - carbsPct) : 0
+    const macroSplit = computeMacroEnergySplit(
+      {
+        kcal: avgKcal,
+        protein: avgProtein,
+        carbs: avgCarbs,
+        fat: avgFat,
+        fiber: avgFiber,
+      },
+      goals,
+    )
 
     const maxBarKcal = Math.max(
       goals.dailyKcal * 1.15,
@@ -135,18 +165,16 @@ export function WeeklyTrendsTab({
       avgProtein,
       avgCarbs,
       avgFat,
+      avgFiber,
       withinGoalDays,
-      proteinPct,
-      carbsPct,
-      fatPct,
-      hasMacroData: macroKcalSum > 0,
+      macroSplit,
       maxAxisKcal: Math.ceil(maxBarKcal / 250) * 250,
     }
-  }, [chartData, goals.dailyKcal])
+  }, [chartData, goals])
 
   const weeklyReportData = useMemo(() => {
     const sevenPts = last7Days.map((slot) => {
-      const t = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+      const t = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
       return {
         label: slot.isToday ? 'امروز' : slot.weekdayCompact,
         jalaliShort: slot.jalaliShort,
@@ -440,6 +468,99 @@ export function WeeklyTrendsTab({
         )}
       </section>
 
+      {/* Complete Macronutrient Charts (Donut Energy Split + Daily Stacked Bar) */}
+      <section
+        className="card-surface rounded-2xl p-4 sm:p-5 space-y-5"
+        aria-label="نمودار جامع درشت‌مغذی‌ها"
+        data-testid="trends-macro-section"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/12 flex items-center justify-center text-amber-400">
+            <PieChart className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">
+              نمودار کامل درشت‌مغذی‌ها ({rangeDays === 7 ? '۷ روز اخیر' : '۳۰ روز اخیر'})
+            </h2>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              سهم انرژی میانگین روزانه (حلقه‌ای) و روند تفکیکی هر روز (انباشته: پروتئین، کربوهیدرات،
+              چربی)
+            </p>
+          </div>
+        </div>
+
+        {!stats.macroSplit.hasMacroEnergy ? (
+          <p className="text-xs text-zinc-400 py-4 text-center">
+            با ثبت اولین وعده، نمودار حلقه‌ای سهم انرژی و نمودار ستونی انباشته درشت‌مغذی‌ها فعال
+            می‌شود.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            <MacroDonutChart
+              split={stats.macroSplit}
+              proteinGrams={stats.avgProtein}
+              carbsGrams={stats.avgCarbs}
+              fatGrams={stats.avgFat}
+              fiberGrams={stats.avgFiber}
+              fiberGoalGrams={goals.fiberGrams ?? 28}
+            />
+
+            <div className="pt-3 border-t border-[#23232A] space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-zinc-200">
+                  روند روزانه انرژی درشت‌مغذی‌ها (کالری تفکیکی هر روز)
+                </span>
+                <div className="flex items-center gap-3 text-[11px] text-zinc-400">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-sky-400" /> پروتئین
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" /> کربوهیدرات
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-rose-400" /> چربی
+                  </span>
+                </div>
+              </div>
+
+              <MacroStackedBarChart
+                data={chartData}
+                rangeDays={rangeDays}
+                onSelectDate={onSelectDate}
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Complete Micronutrient Inspector (Radar + 10 Vitamins & Minerals Average) */}
+      <section
+        className="card-surface rounded-2xl p-4 sm:p-5 space-y-4"
+        aria-label="بررسی ریزمغزی‌ها (ویتامین‌ها و املاح معدنی)"
+        data-testid="trends-micronutrients-section"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-400">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">
+              بررسی ریزمغزی‌ها — میانگین روزانه ({rangeDays === 7 ? '۷ روزه' : '۳۰ روزه'})
+            </h2>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              میانگین ویتامین‌ها، املاح معدنی و سقف سدیم در روزهای دارای ثبت
+            </p>
+          </div>
+        </div>
+
+        <MicronutrientPanel
+          entries={rangeEntries}
+          foods={foods}
+          divisorDays={Math.max(1, stats.activeDaysCount)}
+          periodTitle={`میانگین روزانه در ${formatFaNumber(stats.activeDaysCount)} روز فعال`}
+        />
+      </section>
+
       {/* Search Across Meal History */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5 space-y-3"
@@ -585,87 +706,6 @@ export function WeeklyTrendsTab({
                   </button>
                 </div>
               ))}
-          </div>
-        )}
-      </section>
-
-      {/* Macronutrient Percentage Breakdown */}
-      <section className="card-surface rounded-2xl p-4 sm:p-5" aria-label="سهم درشت‌مغذی‌ها">
-        <div className="flex items-center justify-between mb-3.5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-100">
-              ترکیب درشت‌مغذی‌های {rangeDays === 7 ? 'هفته' : 'ماه'}
-            </h2>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
-              سهم درصدی هر درشت‌مغذی از کل کالری مصرفی (برآورد تقریبی)
-            </p>
-          </div>
-        </div>
-
-        {!stats.hasMacroData ? (
-          <p className="text-xs text-zinc-400 py-4 text-center">
-            با ثبت اولین وعده، درصد پروتئین، کربوهیدرات و چربی شما در اینجا نمایش داده می‌شود.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            <div className="h-3.5 w-full rounded-full overflow-hidden flex bg-[#242429]">
-              <div
-                style={{ width: `${stats.proteinPct}%` }}
-                className="bg-sky-400 transition-all duration-500"
-                title={`پروتئین ${formatFaNumber(stats.proteinPct)}٪`}
-              />
-              <div
-                style={{ width: `${stats.carbsPct}%` }}
-                className="bg-amber-400 transition-all duration-500"
-                title={`کربوهیدرات ${formatFaNumber(stats.carbsPct)}٪`}
-              />
-              <div
-                style={{ width: `${stats.fatPct}%` }}
-                className="bg-rose-400 transition-all duration-500"
-                title={`چربی ${formatFaNumber(stats.fatPct)}٪`}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5">
-              <div className="card-elevated rounded-xl p-3">
-                <div className="flex items-center gap-1.5 text-xs text-zinc-300">
-                  <span className="w-2 h-2 rounded-full bg-sky-400" />
-                  <span>پروتئین</span>
-                </div>
-                <div className="text-lg font-bold text-sky-400 mt-1 tabular-nums-fa">
-                  {formatFaNumber(stats.proteinPct)}٪
-                </div>
-                <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-                  میانگین {formatFaNumber(stats.avgProtein, 1)} گرم
-                </div>
-              </div>
-
-              <div className="card-elevated rounded-xl p-3">
-                <div className="flex items-center gap-1.5 text-xs text-zinc-300">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" />
-                  <span>کربوهیدرات</span>
-                </div>
-                <div className="text-lg font-bold text-amber-400 mt-1 tabular-nums-fa">
-                  {formatFaNumber(stats.carbsPct)}٪
-                </div>
-                <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-                  میانگین {formatFaNumber(stats.avgCarbs, 1)} گرم
-                </div>
-              </div>
-
-              <div className="card-elevated rounded-xl p-3">
-                <div className="flex items-center gap-1.5 text-xs text-zinc-300">
-                  <span className="w-2 h-2 rounded-full bg-rose-400" />
-                  <span>چربی</span>
-                </div>
-                <div className="text-lg font-bold text-rose-400 mt-1 tabular-nums-fa">
-                  {formatFaNumber(stats.fatPct)}٪
-                </div>
-                <div className="text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
-                  میانگین {formatFaNumber(stats.avgFat, 1)} گرم
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </section>

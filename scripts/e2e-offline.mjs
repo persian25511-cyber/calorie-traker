@@ -77,6 +77,15 @@ async function run() {
       throw new Error(`Expected ۴۲۵ online, got ${onlineKcal}`)
     }
 
+    // Verify Daily Macronutrient Donut Chart & Daily Micronutrient Inspector (Radar + Top Contributors)
+    await page.locator('#mobile-tab-macro-chart').click()
+    await page.waitForSelector('[data-testid="macro-donut-chart"]', { timeout: 5000 })
+    await page.locator('#mobile-tab-micronutrients').click()
+    await page.waitForSelector('[data-testid="micronutrient-radar-chart"]', { timeout: 5000 })
+    await page.locator('[data-testid="micro-item-ironMg"] button').first().click()
+    await page.waitForSelector('[data-testid="micro-detail-ironMg"]', { timeout: 5000 })
+    await page.locator('#mobile-tab-overview').click()
+
     // 4. Verify Jalali (Shamsi) Monthly Calendar modal opens & closes cleanly
     await page.locator('#open-jalali-calendar-btn').click()
     await page.waitForSelector('[data-testid="jalali-calendar-modal"]', { timeout: 5000 })
@@ -107,10 +116,12 @@ async function run() {
       throw new Error(`Expected ۴۲۵ after offline reload, got ${offlineKcal}`)
     }
 
-    // 7. Navigate to all lazy-loaded tabs while OFFLINE & verify Native SVG Charts + Settings
+    // 7. Navigate to all lazy-loaded tabs while OFFLINE & verify Native SVG Macro/Micro Charts + Settings
     await page.locator('#mobile-nav-trends').click()
     await page.waitForSelector('[data-testid="weekly-trends-tab"]', { timeout: 8000 })
     await page.waitForSelector('[data-testid="weekly-bar-chart"]', { timeout: 5000 })
+    await page.waitForSelector('[data-testid="macro-stacked-bar-chart"]', { timeout: 5000 })
+    await page.waitForSelector('[data-testid="trends-micronutrients-section"]', { timeout: 5000 })
     await page.locator('#history-search-input').fill('قورمه')
     await page.waitForSelector('[data-testid="history-search-result-row"]', { timeout: 5000 })
 

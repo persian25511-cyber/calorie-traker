@@ -14,12 +14,180 @@ export type AppTab = 'home' | 'trends' | 'foods' | 'settings'
 
 export type ThemeMode = 'dark' | 'light'
 
+export type MicronutrientKey =
+  | 'ironMg'
+  | 'calciumMg'
+  | 'potassiumMg'
+  | 'magnesiumMg'
+  | 'zincMg'
+  | 'sodiumMg'
+  | 'vitaminCMg'
+  | 'vitaminDMcg'
+  | 'vitaminB12Mcg'
+  | 'vitaminAMcg'
+
+export interface MicronutrientValues {
+  ironMg: number
+  calciumMg: number
+  potassiumMg: number
+  magnesiumMg: number
+  zincMg: number
+  sodiumMg: number
+  vitaminCMg: number
+  vitaminDMcg: number
+  vitaminB12Mcg: number
+  vitaminAMcg: number
+}
+
+export const EMPTY_MICRONUTRIENTS: MicronutrientValues = {
+  ironMg: 0,
+  calciumMg: 0,
+  potassiumMg: 0,
+  magnesiumMg: 0,
+  zincMg: 0,
+  sodiumMg: 0,
+  vitaminCMg: 0,
+  vitaminDMcg: 0,
+  vitaminB12Mcg: 0,
+  vitaminAMcg: 0,
+}
+
+export interface MicronutrientSpec {
+  key: MicronutrientKey
+  label: string
+  shortLabel: string
+  unit: 'میلی‌گرم' | 'میکروگرم'
+  unitShort: 'mg' | 'mcg'
+  /** Adult general Daily Reference Value (FDA/IOM/WHO approximate benchmark) */
+  dailyRef: number
+  group: 'vitamin' | 'mineral' | 'limit'
+  /** True for nutrients like Sodium where dailyRef is a recommended ceiling rather than a minimum target */
+  isUpperLimit?: boolean
+  decimals: 0 | 1
+  richSourcesHint: string
+}
+
+export const MICRONUTRIENT_SPECS: readonly MicronutrientSpec[] = [
+  {
+    key: 'ironMg',
+    label: 'آهن (Iron)',
+    shortLabel: 'آهن',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 18,
+    group: 'mineral',
+    decimals: 1,
+    richSourcesHint: 'عدسی، خوراک لوبیا، قورمه‌سبزی، گوشت قرمز، پسته، نان سنگک، اسفناج',
+  },
+  {
+    key: 'calciumMg',
+    label: 'کلسیم (Calcium)',
+    shortLabel: 'کلسیم',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 1000,
+    group: 'mineral',
+    decimals: 0,
+    richSourcesHint: 'کشک، ماست، شیر، پنیر سفید، دوغ کم‌نمک، بادام، ارده و کنجد، سبزی خوردن',
+  },
+  {
+    key: 'potassiumMg',
+    label: 'پتاسیم (Potassium)',
+    shortLabel: 'پتاسیم',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 3500,
+    group: 'mineral',
+    decimals: 0,
+    richSourcesHint: 'موز، سیب‌زمینی پخته، حبوبات، آووکادو، خرما، ماست، خورش‌های سبزی‌دار',
+  },
+  {
+    key: 'magnesiumMg',
+    label: 'منیزیم (Magnesium)',
+    shortLabel: 'منیزیم',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 400,
+    group: 'mineral',
+    decimals: 0,
+    richSourcesHint: 'بادام، گردو، تخمه کدو و آفتابگردان، جو دوسر، شکلات تلخ ۷۰٪، نان سبوس‌دار و سنگک',
+  },
+  {
+    key: 'zincMg',
+    label: 'روی / زینک (Zinc)',
+    shortLabel: 'روی (زینک)',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 11,
+    group: 'mineral',
+    decimals: 1,
+    richSourcesHint: 'گوشت گوساله و گوسفند، مرغ، عدس، نخود، تخمه کدو، مغزها، تخم‌مرغ',
+  },
+  {
+    key: 'vitaminCMg',
+    label: 'ویتامین C',
+    shortLabel: 'ویتامین C',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 90,
+    group: 'vitamin',
+    decimals: 0,
+    richSourcesHint: 'پرتقال، کیوی، توت‌فرنگی، انار، گوجه‌فرنگی، سالاد شیرازی، سبزی خوردن، کلم بروکلی',
+  },
+  {
+    key: 'vitaminDMcg',
+    label: 'ویتامین D',
+    shortLabel: 'ویتامین D',
+    unit: 'میکروگرم',
+    unitShort: 'mcg',
+    dailyRef: 15,
+    group: 'vitamin',
+    decimals: 1,
+    richSourcesHint: 'ماهی سالمون، ساردین، تن ماهی، زرده تخم‌مرغ، شیر و لبنیات غنی‌شده',
+  },
+  {
+    key: 'vitaminB12Mcg',
+    label: 'ویتامین B12',
+    shortLabel: 'ویتامین B12',
+    unit: 'میکروگرم',
+    unitShort: 'mcg',
+    dailyRef: 2.4,
+    group: 'vitamin',
+    decimals: 1,
+    richSourcesHint: 'گوشت قرمز، ماهی و تن ماهی، تخم‌مرغ، شیر، ماست، پنیر و کشک',
+  },
+  {
+    key: 'vitaminAMcg',
+    label: 'ویتامین A',
+    shortLabel: 'ویتامین A',
+    unit: 'میکروگرم',
+    unitShort: 'mcg',
+    dailyRef: 900,
+    group: 'vitamin',
+    decimals: 0,
+    richSourcesHint: 'هویج، سیب‌زمینی شیرین، اسفناج، سبزی خوردن، تخم‌مرغ، کره و لبنیات',
+  },
+  {
+    key: 'sodiumMg',
+    label: 'سدیم / نمک (سقف روزانه)',
+    shortLabel: 'سدیم',
+    unit: 'میلی‌گرم',
+    unitShort: 'mg',
+    dailyRef: 2300,
+    group: 'limit',
+    isUpperLimit: true,
+    decimals: 0,
+    richSourcesHint: 'سقف مجاز روزانه ۲۳۰۰ میلی‌گرم؛ در پنیر شور، دوغ، فست‌فود، چیپس/پفک و کنسروها بالاست',
+  },
+] as const
+
 export interface MacroValues {
   kcal: number
   protein: number
   carbs: number
   fat: number
   fiber?: number
+  micronutrients?: Partial<MicronutrientValues>
 }
 
 export interface FoodUnit {
@@ -78,6 +246,7 @@ export interface ParsedFoodItem {
   carbs: number
   fat: number
   fiber?: number
+  micronutrients?: MicronutrientValues
   rawSegment: string
   confidence: number
   /** Applied cooking preparation modifier (e.g. 'کم‌روغن', 'پرچرب') */
@@ -108,6 +277,7 @@ export interface LoggedFoodEntry {
   carbs: number
   fat: number
   fiber?: number
+  micronutrients?: Partial<MicronutrientValues>
   modifierLabel?: string
   /** Optional per-100g macro snapshot so quantity edits recompute accurately even if custom food is deleted */
   per100g?: MacroValues

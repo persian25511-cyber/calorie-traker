@@ -1,4 +1,10 @@
-import type { FoodCategory, FoodItem, FoodUnit } from '../../types/nutrition'
+import type {
+  FoodCategory,
+  FoodItem,
+  FoodUnit,
+  MicronutrientValues,
+} from '../../types/nutrition'
+import { resolveFoodMicronutrients } from './micronutrientRegistry'
 import {
   DEFAULT_APPROXIMATE_SOURCE,
   IRANIAN_FOOD_BARCODES,
@@ -8,10 +14,10 @@ import {
 
 export const NUTRITION_DATA_SOURCES = {
   shortNotice:
-    'ارزش‌های غذایی برآورد تقریبی هستند (۶۷ قلم پرمصرف با جدول ترکیبات ایران و USDA تطبیق شده‌اند؛ طبخ خانگی متغیر است).',
+    'ارزش‌های غذایی، درشت‌مغذی‌ها و ریزمغزی‌ها برآورد تقریبی هستند (بر پایه جدول ترکیبات ایران و USDA؛ طبخ خانگی متغیر است).',
   detailedSources: [
     'جدول ترکیبات مواد غذایی ایران (انستیتو تحقیقات تغذیه‌ای و صنایع غذایی کشور — NNFTRI)',
-    'پایگاه رسمی USDA FoodData Central (SR Legacy & Foundation Foods برای اقلام پایه، لبنیات، میوه‌ها و مغزها)',
+    'پایگاه رسمی USDA FoodData Central (SR Legacy & Foundation Foods برای درشت‌مغذی‌ها، ویتامین‌ها و املاح معدنی)',
     'برچسب ارزش غذایی و استاندارد ملی فرآورده‌های رایج بازار ایران (برای اقلام بسته‌بندی‌شده؛ همگی به‌عنوان برآورد تقریبی نمایش داده می‌شوند)',
   ],
 } as const
@@ -23,6 +29,7 @@ export interface FoodSourceMeta {
   verified?: boolean
   fiber?: number
   barcode?: string
+  micronutrients?: Partial<MicronutrientValues>
 }
 
 function estimateDefaultFiber(category: FoodCategory, carbs: number): number {
@@ -32,7 +39,7 @@ function estimateDefaultFiber(category: FoodCategory, carbs: number): number {
   return 0
 }
 
-/** Compact, strictly typed helper to construct normalized Iranian FoodItem records with fiber, barcode, source & verification metadata. */
+/** Compact, strictly typed helper to construct normalized Iranian FoodItem records with fiber, micronutrients, barcode, source & verification metadata. */
 export function mkFood(
   id: string,
   name: string,
@@ -54,6 +61,8 @@ export function mkFood(
   const source = meta?.source ?? registrySource ?? DEFAULT_APPROXIMATE_SOURCE
   const fiber = meta?.fiber ?? VERIFIED_FIBER_PER_100G[id] ?? estimateDefaultFiber(category, per100g[2])
   const barcode = meta?.barcode ?? IRANIAN_FOOD_BARCODES[id]
+  const baseMicro = resolveFoodMicronutrients(id, name, category, per100g)
+  const micronutrients = meta?.micronutrients ? { ...baseMicro, ...meta.micronutrients } : baseMicro
 
   return {
     id,
@@ -66,6 +75,7 @@ export function mkFood(
       carbs: per100g[2],
       fat: per100g[3],
       fiber,
+      micronutrients,
     },
     defaultUnit: mappedUnits[0].name,
     units: mappedUnits,

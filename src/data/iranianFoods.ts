@@ -12,7 +12,7 @@ export { NUTRITION_DATA_SOURCES }
  * (only user custom foods and explicit overrides are persisted in localStorage), so
  * bumping CATALOG_VERSION delivers nutrition refinements to all existing users cleanly.
  */
-export const CATALOG_VERSION = '2026.11.2'
+export const CATALOG_VERSION = '2026.11.3'
 
 /**
  * Deduplicated curated database of 315+ everyday Iranian home-cooked dishes,

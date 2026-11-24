@@ -681,6 +681,8 @@ export function App() {
                   goals={goals}
                   dayLabel={selectedDayShortLabel}
                   waterGlasses={selectedWaterGlasses}
+                  dayEntries={dayEntries}
+                  foods={foods}
                   onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                   onCopyDailyReport={handleCopyDailyReport}
                   onShareDailyImage={handleShareDailyImage}
@@ -708,6 +710,8 @@ export function App() {
                 goals={goals}
                 dayLabel={selectedDayShortLabel}
                 waterGlasses={selectedWaterGlasses}
+                dayEntries={dayEntries}
+                foods={foods}
                 onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                 onCopyDailyReport={handleCopyDailyReport}
                 onShareDailyImage={handleShareDailyImage}
@@ -726,6 +730,7 @@ export function App() {
           >
             <WeeklyTrendsTab
               entries={entries}
+              foods={foods}
               goals={goals}
               weights={weights}
               streakDays={streakDays}

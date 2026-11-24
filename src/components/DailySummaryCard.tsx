@@ -1,7 +1,10 @@
 import { Check, Copy, Droplets, ImageDown, Minus, Plus } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import type { MacroValues, UserGoals } from '../types/nutrition'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FoodItem, LoggedFoodEntry, MacroValues, UserGoals } from '../types/nutrition'
+import { computeMacroEnergySplit } from '../utils/micronutrients'
 import { formatFaNumber } from '../utils/persianFormat'
+import { MicronutrientPanel } from './MicronutrientPanel'
+import { MacroDonutChart } from './charts/NativeCharts'
 
 interface DailySummaryCardProps {
   idPrefix?: string
@@ -9,10 +12,14 @@ interface DailySummaryCardProps {
   goals: UserGoals
   dayLabel: string
   waterGlasses: number
+  dayEntries: readonly LoggedFoodEntry[]
+  foods: readonly FoodItem[]
   onAdjustWater: (delta: number) => void
   onCopyDailyReport: () => Promise<boolean>
   onShareDailyImage?: () => Promise<void>
 }
+
+type SummaryViewMode = 'overview' | 'macro_chart' | 'micronutrients'
 
 export function DailySummaryCard({
   idPrefix = 'summary',
@@ -20,10 +27,13 @@ export function DailySummaryCard({
   goals,
   dayLabel,
   waterGlasses,
+  dayEntries,
+  foods,
   onAdjustWater,
   onCopyDailyReport,
   onShareDailyImage,
 }: DailySummaryCardProps) {
+  const [viewMode, setViewMode] = useState<SummaryViewMode>('overview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
 
@@ -34,6 +44,8 @@ export function DailySummaryCard({
       }
     }
   }, [])
+
+  const macroSplit = useMemo(() => computeMacroEnergySplit(consumed, goals), [consumed, goals])
 
   const ratio = goals.dailyKcal > 0 ? consumed.kcal / goals.dailyKcal : 0
   const clampedRatio = Math.min(1, Math.max(0, ratio))
@@ -55,6 +67,7 @@ export function DailySummaryCard({
       label: 'پروتئین',
       consumed: consumed.protein,
       target: goals.proteinGrams,
+      pctOfEnergy: macroSplit.proteinPct,
       barColor: 'bg-sky-400',
       textColor: 'text-sky-400',
       dotColor: 'bg-sky-400',
@@ -64,6 +77,7 @@ export function DailySummaryCard({
       label: 'کربوهیدرات',
       consumed: consumed.carbs,
       target: goals.carbsGrams,
+      pctOfEnergy: macroSplit.carbsPct,
       barColor: 'bg-amber-400',
       textColor: 'text-amber-400',
       dotColor: 'bg-amber-400',
@@ -73,6 +87,7 @@ export function DailySummaryCard({
       label: 'چربی',
       consumed: consumed.fat,
       target: goals.fatGrams,
+      pctOfEnergy: macroSplit.fatPct,
       barColor: 'bg-rose-400',
       textColor: 'text-rose-400',
       dotColor: 'bg-rose-400',
@@ -82,6 +97,7 @@ export function DailySummaryCard({
       label: 'فیبر غذایی',
       consumed: consumed.fiber ?? 0,
       target: goals.fiberGrams ?? 28,
+      pctOfEnergy: null,
       barColor: 'bg-lime-400',
       textColor: 'text-lime-400',
       dotColor: 'bg-lime-400',
@@ -107,10 +123,10 @@ export function DailySummaryCard({
       aria-label={`خلاصه تغذیه ${dayLabel}`}
       className="card-surface rounded-2xl p-4 sm:p-5"
     >
-      <div className="flex items-center justify-between gap-2 mb-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-100">خلاصه {dayLabel}</h2>
-          <p className="text-[11px] text-zinc-400">برآورد تقریبی انرژی، درشت‌مغذی‌ها و فیبر</p>
+          <p className="text-[11px] text-zinc-400">انرژی، درشت‌مغذی‌ها و ۱۰ ریزمغزی کلیدی</p>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -147,96 +163,188 @@ export function DailySummaryCard({
         </div>
       </div>
 
-      {/* Ring + Key Calorie Numbers */}
-      <div className="flex flex-col sm:flex-row lg:flex-col items-center gap-5">
-        <div className="relative flex items-center justify-center shrink-0">
-          <svg
-            width={size}
-            height={size}
-            viewBox={`0 0 ${size} ${size}`}
-            className="-rotate-90"
-            role="img"
-            aria-label={`مصرف تقریبی ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`}
-          >
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="var(--ring-track)"
-              strokeWidth={strokeWidth}
-            />
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={isOver ? '#F59E0B' : '#10B981'}
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-              className="transition-all duration-500 ease-out"
-            />
-          </svg>
+      {/* 3-Tab Segmented Mode Switcher */}
+      <div
+        role="tablist"
+        aria-label="نمایش خلاصه، نمودار درشت‌مغذی‌ها یا ریزمغزی‌ها"
+        className="grid grid-cols-3 rounded-xl bg-[#0C0C0D] p-1 border border-[#26262C] mb-4 text-[11px]"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'overview'}
+          id={`${idPrefix}-tab-overview`}
+          onClick={() => setViewMode('overview')}
+          className={`py-1.5 rounded-lg font-medium transition-colors ${
+            viewMode === 'overview'
+              ? 'bg-emerald-500 text-[#051B11] font-bold'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          خلاصه انرژی
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'macro_chart'}
+          id={`${idPrefix}-tab-macro-chart`}
+          data-testid="summary-tab-macro-chart"
+          onClick={() => setViewMode('macro_chart')}
+          className={`py-1.5 rounded-lg font-medium transition-colors ${
+            viewMode === 'macro_chart'
+              ? 'bg-emerald-500 text-[#051B11] font-bold'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          نمودار درشت‌مغذی
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'micronutrients'}
+          id={`${idPrefix}-tab-micronutrients`}
+          data-testid="summary-tab-micronutrients"
+          onClick={() => setViewMode('micronutrients')}
+          className={`py-1.5 rounded-lg font-medium transition-colors ${
+            viewMode === 'micronutrients'
+              ? 'bg-emerald-500 text-[#051B11] font-bold'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          ریزمغزی‌ها
+        </button>
+      </div>
 
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3">
-            <span
-              data-testid="consumed-kcal"
-              className={`text-3xl font-extrabold tracking-tight tabular-nums-fa leading-none ${
-                isOver ? 'text-amber-300' : 'text-zinc-50'
-              }`}
+      {/* Mode 1: Calorie Ring + 4 Macro/Fiber Bars */}
+      {viewMode === 'overview' && (
+        <div className="flex flex-col sm:flex-row lg:flex-col items-center gap-5">
+          <div className="relative flex items-center justify-center shrink-0">
+            <svg
+              width={size}
+              height={size}
+              viewBox={`0 0 ${size} ${size}`}
+              className="-rotate-90"
+              role="img"
+              aria-label={`مصرف تقریبی ${formatFaNumber(consumed.kcal)} از ${formatFaNumber(goals.dailyKcal)} کالری`}
             >
-              {formatFaNumber(consumed.kcal)}
-            </span>
-            <span className="text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
-              از {formatFaNumber(goals.dailyKcal)} کالری
-            </span>
-            <span
-              data-testid="remaining-kcal"
-              className={`mt-2 text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums-fa ${
-                isOver
-                  ? 'bg-amber-500/15 text-amber-300'
-                  : 'bg-emerald-500/12 text-emerald-300'
-              }`}
-            >
-              {isOver
-                ? `${formatFaNumber(Math.abs(remaining))} بالاتر از هدف`
-                : `${formatFaNumber(remaining)} مانده`}
-            </span>
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke="var(--ring-track)"
+                strokeWidth={strokeWidth}
+              />
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={isOver ? '#F59E0B' : '#10B981'}
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={dashOffset}
+                className="transition-all duration-500 ease-out"
+              />
+            </svg>
+
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3">
+              <span
+                data-testid="consumed-kcal"
+                className={`text-3xl font-extrabold tracking-tight tabular-nums-fa leading-none ${
+                  isOver ? 'text-amber-300' : 'text-zinc-50'
+                }`}
+              >
+                {formatFaNumber(consumed.kcal)}
+              </span>
+              <span className="text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
+                از {formatFaNumber(goals.dailyKcal)} کالری
+              </span>
+              <span
+                data-testid="remaining-kcal"
+                className={`mt-2 text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums-fa ${
+                  isOver
+                    ? 'bg-amber-500/15 text-amber-300'
+                    : 'bg-emerald-500/12 text-emerald-300'
+                }`}
+              >
+                {isOver
+                  ? `${formatFaNumber(Math.abs(remaining))} بالاتر از هدف`
+                  : `${formatFaNumber(remaining)} مانده`}
+              </span>
+            </div>
+          </div>
+
+          {/* Compact Macro + Fiber Progress Bars with Caloric Share Badge */}
+          <div className="w-full space-y-3">
+            {macros.map((m) => {
+              const pct =
+                m.target > 0 ? Math.min(100, Math.round((m.consumed / m.target) * 100)) : 0
+              return (
+                <div key={m.id} data-testid={`macro-bar-${m.id}`}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${m.dotColor}`} />
+                      <span className="font-medium text-zinc-200">{m.label}</span>
+                      {m.pctOfEnergy !== null && macroSplit.hasMacroEnergy && (
+                        <span className="text-[10px] text-zinc-400 tabular-nums-fa">
+                          ({formatFaNumber(m.pctOfEnergy)}٪ انرژی)
+                        </span>
+                      )}
+                    </div>
+                    <div className="tabular-nums-fa text-zinc-400">
+                      <span className={`font-semibold ${m.textColor}`}>
+                        {formatFaNumber(m.consumed, 1)}
+                      </span>
+                      <span className="mx-1 text-zinc-600">/</span>
+                      <span>{formatFaNumber(m.target)} گرم</span>
+                    </div>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#242429] overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${m.barColor} transition-all duration-500 ease-out`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
+      )}
 
-        {/* Compact Macro + Fiber Progress Bars */}
-        <div className="w-full space-y-3">
-          {macros.map((m) => {
-            const pct = m.target > 0 ? Math.min(100, Math.round((m.consumed / m.target) * 100)) : 0
-            return (
-              <div key={m.id} data-testid={`macro-bar-${m.id}`}>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${m.dotColor}`} />
-                    <span className="font-medium text-zinc-200">{m.label}</span>
-                  </div>
-                  <div className="tabular-nums-fa text-zinc-400">
-                    <span className={`font-semibold ${m.textColor}`}>
-                      {formatFaNumber(m.consumed, 1)}
-                    </span>
-                    <span className="mx-1 text-zinc-600">/</span>
-                    <span>{formatFaNumber(m.target)} گرم</span>
-                  </div>
-                </div>
-                <div className="h-2 rounded-full bg-[#242429] overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${m.barColor} transition-all duration-500 ease-out`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
-            )
-          })}
+      {/* Mode 2: Interactive Macronutrient Energy Donut Chart */}
+      {viewMode === 'macro_chart' && (
+        <div className="space-y-2.5 animate-fade-up">
+          <p className="text-[11px] text-zinc-400 leading-relaxed">
+            سهم واقعی هر درشت‌مغذی از انرژی دریافتی (پروتئین و کربوهیدرات ۴ کالری/گرم، چربی ۹
+            کالری/گرم) در مقایسه با هدف شما:
+          </p>
+          <MacroDonutChart
+            split={macroSplit}
+            proteinGrams={consumed.protein}
+            carbsGrams={consumed.carbs}
+            fatGrams={consumed.fat}
+            fiberGrams={consumed.fiber ?? 0}
+            fiberGoalGrams={goals.fiberGrams ?? 28}
+            compact
+          />
         </div>
-      </div>
+      )}
+
+      {/* Mode 3: Interactive Daily Micronutrient Inspector (Radar + 10 Vitamins & Minerals) */}
+      {viewMode === 'micronutrients' && (
+        <div className="animate-fade-up">
+          <MicronutrientPanel
+            entries={dayEntries}
+            foods={foods}
+            divisorDays={1}
+            periodTitle={dayLabel}
+            compact
+          />
+        </div>
+      )}
 
       {/* Compact Daily Water Intake Tracker */}
       <div className="mt-4 pt-4 border-t border-[#222227]" data-testid="water-tracker">

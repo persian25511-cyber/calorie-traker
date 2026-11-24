@@ -29,6 +29,12 @@ export interface FoodFormState {
   carbs: string
   fat: string
   fiber: string
+  ironMg: string
+  calciumMg: string
+  sodiumMg: string
+  potassiumMg: string
+  vitaminCMg: string
+  vitaminDMcg: string
   defaultUnitIndex: number
   units: UnitDraft[]
 }
@@ -60,6 +66,12 @@ export function createEmptyForm(prefillName = '', prefillBarcode = ''): FoodForm
     carbs: '',
     fat: '',
     fiber: '',
+    ironMg: '',
+    calciumMg: '',
+    sodiumMg: '',
+    potassiumMg: '',
+    vitaminCMg: '',
+    vitaminDMcg: '',
     defaultUnitIndex: 0,
     units: [{ name: 'کفگیر', grams: '120' }],
   }
@@ -76,6 +88,7 @@ export function createFormFromFood(food: FoodItem): FoodFormState {
     0,
     editableUnits.findIndex((u) => u.name === food.defaultUnit),
   )
+  const micro = food.per100g.micronutrients
 
   return {
     editingId: food.id,
@@ -90,6 +103,12 @@ export function createFormFromFood(food: FoodItem): FoodFormState {
     carbs: String(food.per100g.carbs),
     fat: String(food.per100g.fat),
     fiber: food.per100g.fiber !== undefined ? String(food.per100g.fiber) : '',
+    ironMg: micro?.ironMg !== undefined ? String(micro.ironMg) : '',
+    calciumMg: micro?.calciumMg !== undefined ? String(micro.calciumMg) : '',
+    sodiumMg: micro?.sodiumMg !== undefined ? String(micro.sodiumMg) : '',
+    potassiumMg: micro?.potassiumMg !== undefined ? String(micro.potassiumMg) : '',
+    vitaminCMg: micro?.vitaminCMg !== undefined ? String(micro.vitaminCMg) : '',
+    vitaminDMcg: micro?.vitaminDMcg !== undefined ? String(micro.vitaminDMcg) : '',
     defaultUnitIndex: defIdx,
     units: editableUnits,
   }

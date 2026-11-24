@@ -1,4 +1,10 @@
-import type { FoodItem, ParseResult, ParsedFoodItem } from '../../types/nutrition'
+import type {
+  FoodItem,
+  MicronutrientValues,
+  ParseResult,
+  ParsedFoodItem,
+} from '../../types/nutrition'
+import { scaleMicronutrients } from '../micronutrients'
 import { getCatalogIndex, matchFoodInDatabase, VAV_PLACEHOLDER } from './catalogIndex'
 import {
   applyCookingModifierToPer100g,
@@ -123,6 +129,7 @@ export function calculateFoodMacros(
   carbs: number
   fat: number
   fiber: number
+  micronutrients: MicronutrientValues
 } {
   const safeQty = Math.max(0.05, quantity)
   const totalGrams = Math.round(safeQty * gramsPerUnit * 10) / 10
@@ -135,6 +142,7 @@ export function calculateFoodMacros(
     carbs: Math.round(food.per100g.carbs * factor * 10) / 10,
     fat: Math.round(food.per100g.fat * factor * 10) / 10,
     fiber: Math.round((food.per100g.fiber ?? 0) * factor * 10) / 10,
+    micronutrients: scaleMicronutrients(food.per100g.micronutrients, totalGrams),
   }
 }
 
@@ -281,6 +289,7 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       carbs: macros.carbs,
       fat: macros.fat,
       fiber: macros.fiber,
+      micronutrients: macros.micronutrients,
       rawSegment: segment,
       confidence: match.confidence,
       ...(activeModifier ? { modifierLabel: activeModifier.label } : {}),

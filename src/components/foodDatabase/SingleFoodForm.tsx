@@ -1,9 +1,12 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { resolveFoodMicronutrients } from '../../data/foods/micronutrientRegistry'
 import {
   FOOD_CATEGORY_LABELS,
   type FoodCategory,
   type FoodItem,
   type FoodUnit,
+  type MicronutrientValues,
 } from '../../types/nutrition'
 import { toAsciiDigits } from '../../utils/persianFormat'
 import {
@@ -32,6 +35,7 @@ export function SingleFoodForm({
   onUpdateFood,
   onClose,
 }: SingleFoodFormProps) {
+  const [showMicroFields, setShowMicroFields] = useState(false)
   const activeDefaultUnitLabel =
     formState.units[formState.defaultUnitIndex]?.name.trim() || 'واحد پیش‌فرض'
 
@@ -97,12 +101,47 @@ export function SingleFoodForm({
     const rawFiber = parsePositiveNum(formState.fiber, 0)
 
     const factor = formState.inputMode === 'perUnit' ? 100 / defaultUnitObj.grams : 1
+    const baseKcal100 = Math.round(rawKcal * factor * 10) / 10
+    const baseProt100 = Math.round(rawProtein * factor * 10) / 10
+    const baseCarbs100 = Math.round(rawCarbs * factor * 10) / 10
+    const baseFat100 = Math.round(rawFat * factor * 10) / 10
+
+    const fallbackMicro = resolveFoodMicronutrients(
+      formState.editingId ?? 'custom',
+      cleanName,
+      formState.category,
+      [baseKcal100, baseProt100, baseCarbs100, baseFat100],
+    )
+
+    const micronutrients: MicronutrientValues = {
+      ...fallbackMicro,
+      ...(formState.ironMg.trim()
+        ? { ironMg: Math.round(parsePositiveNum(formState.ironMg, 0) * factor * 10) / 10 }
+        : {}),
+      ...(formState.calciumMg.trim()
+        ? { calciumMg: Math.round(parsePositiveNum(formState.calciumMg, 0) * factor) }
+        : {}),
+      ...(formState.sodiumMg.trim()
+        ? { sodiumMg: Math.round(parsePositiveNum(formState.sodiumMg, 0) * factor) }
+        : {}),
+      ...(formState.potassiumMg.trim()
+        ? { potassiumMg: Math.round(parsePositiveNum(formState.potassiumMg, 0) * factor) }
+        : {}),
+      ...(formState.vitaminCMg.trim()
+        ? { vitaminCMg: Math.round(parsePositiveNum(formState.vitaminCMg, 0) * factor) }
+        : {}),
+      ...(formState.vitaminDMcg.trim()
+        ? { vitaminDMcg: Math.round(parsePositiveNum(formState.vitaminDMcg, 0) * factor * 10) / 10 }
+        : {}),
+    }
+
     const per100g = {
-      kcal: Math.round(rawKcal * factor * 10) / 10,
-      protein: Math.round(rawProtein * factor * 10) / 10,
-      carbs: Math.round(rawCarbs * factor * 10) / 10,
-      fat: Math.round(rawFat * factor * 10) / 10,
+      kcal: baseKcal100,
+      protein: baseProt100,
+      carbs: baseCarbs100,
+      fat: baseFat100,
       fiber: Math.round(rawFiber * factor * 10) / 10,
+      micronutrients,
     }
 
     const aliases = formState.aliasesText
@@ -361,6 +400,109 @@ export function SingleFoodForm({
               className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-lime-400/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
             />
           </div>
+        </div>
+
+        {/* Collapsible Micronutrient Inputs */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowMicroFields((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-emerald-300 transition-colors"
+          >
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform ${showMicroFields ? 'rotate-180' : ''}`}
+            />
+            <span>ریزمغزی‌های اختیاری از روی جدول بسته (آهن، کلسیم، سدیم، ویتامین‌ها)</span>
+          </button>
+
+          {showMicroFields && (
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-xl bg-[#0C0C0D]/60 border border-[#24242C] p-3">
+              <div>
+                <label htmlFor="food-iron-input" className="block text-[11px] text-zinc-300 mb-1">
+                  آهن (mg)
+                </label>
+                <input
+                  id="food-iron-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.ironMg}
+                  onChange={(e) => setFormState((p) => ({ ...p, ironMg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+              <div>
+                <label htmlFor="food-calcium-input" className="block text-[11px] text-zinc-300 mb-1">
+                  کلسیم (mg)
+                </label>
+                <input
+                  id="food-calcium-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.calciumMg}
+                  onChange={(e) => setFormState((p) => ({ ...p, calciumMg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+              <div>
+                <label htmlFor="food-sodium-input" className="block text-[11px] text-zinc-300 mb-1">
+                  سدیم (mg)
+                </label>
+                <input
+                  id="food-sodium-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.sodiumMg}
+                  onChange={(e) => setFormState((p) => ({ ...p, sodiumMg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+              <div>
+                <label htmlFor="food-potassium-input" className="block text-[11px] text-zinc-300 mb-1">
+                  پتاسیم (mg)
+                </label>
+                <input
+                  id="food-potassium-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.potassiumMg}
+                  onChange={(e) => setFormState((p) => ({ ...p, potassiumMg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+              <div>
+                <label htmlFor="food-vitc-input" className="block text-[11px] text-zinc-300 mb-1">
+                  ویتامین C (mg)
+                </label>
+                <input
+                  id="food-vitc-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.vitaminCMg}
+                  onChange={(e) => setFormState((p) => ({ ...p, vitaminCMg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+              <div>
+                <label htmlFor="food-vitd-input" className="block text-[11px] text-zinc-300 mb-1">
+                  ویتامین D (mcg)
+                </label>
+                <input
+                  id="food-vitd-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={formState.vitaminDMcg}
+                  onChange={(e) => setFormState((p) => ({ ...p, vitaminDMcg: e.target.value }))}
+                  placeholder="خودکار"
+                  className="w-full rounded-lg bg-[#141418] border border-[#2C2C33] px-2.5 py-1.5 text-xs text-zinc-100 tabular-nums-fa"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
