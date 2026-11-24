@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_IRANIAN_FOODS } from '../data/iranianFoods'
 import {
   DEFAULT_USER_GOALS,
+  MEAL_TYPE_ORDER,
   type AppBackupData,
+  type FoodCategory,
   type FoodItem,
+  type FoodUnit,
   type LoggedFoodEntry,
   type MealTemplate,
   type MealType,
@@ -25,12 +28,131 @@ import {
 } from '../utils/storageMigration'
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const VALID_CATEGORIES = new Set<FoodCategory>([
+  'stews_mains',
+  'rice_breads',
+  'breakfast_dairy',
+  'drinks_snacks',
+])
+const VALID_MEAL_TYPES = new Set<MealType>(MEAL_TYPE_ORDER)
+const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 function generateId(prefix: string): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `${prefix}-${crypto.randomUUID()}`
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function isFiniteNonNegative(val: unknown): val is number {
+  return typeof val === 'number' && Number.isFinite(val) && val >= 0
+}
+
+/** Sanitizes an untrusted FoodItem object (from JSON backup or storage) so invalid fields never crash the UI or parser. */
+export function sanitizeImportedFood(raw: unknown): FoodItem | null {
+  if (!raw || typeof raw !== 'object') return null
+  const f = raw as Partial<FoodItem>
+  if (typeof f.id !== 'string' || !f.id.trim()) return null
+  if (typeof f.name !== 'string' || !f.name.trim()) return null
+  if (!f.per100g || typeof f.per100g !== 'object') return null
+
+  const { kcal, protein, carbs, fat } = f.per100g
+  if (!isFiniteNonNegative(kcal) || kcal <= 0) return null
+
+  if (!Array.isArray(f.units) || f.units.length === 0) return null
+  const cleanUnits: FoodUnit[] = f.units
+    .filter(
+      (u): u is FoodUnit =>
+        Boolean(u) &&
+        typeof u.name === 'string' &&
+        u.name.trim().length > 0 &&
+        typeof u.grams === 'number' &&
+        Number.isFinite(u.grams) &&
+        u.grams > 0,
+    )
+    .map((u) => ({
+      name: u.name.trim(),
+      grams: u.grams,
+      ...(Array.isArray(u.aliases)
+        ? { aliases: u.aliases.filter((a): a is string => typeof a === 'string' && a.trim().length > 0) }
+        : {}),
+    }))
+
+  if (cleanUnits.length === 0) return null
+  if (!cleanUnits.some((u) => u.name === 'گرم')) {
+    cleanUnits.push({ name: 'گرم', grams: 1 })
+  }
+
+  const cleanAliases = Array.isArray(f.aliases)
+    ? f.aliases.filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+    : []
+
+  const category: FoodCategory =
+    typeof f.category === 'string' && VALID_CATEGORIES.has(f.category as FoodCategory)
+      ? (f.category as FoodCategory)
+      : 'stews_mains'
+
+  const defaultUnit =
+    typeof f.defaultUnit === 'string' && cleanUnits.some((u) => u.name === f.defaultUnit)
+      ? f.defaultUnit
+      : cleanUnits[0].name
+
+  return {
+    id: f.id.trim(),
+    name: f.name.trim(),
+    aliases: cleanAliases,
+    category,
+    per100g: {
+      kcal,
+      protein: isFiniteNonNegative(protein) ? protein : 0,
+      carbs: isFiniteNonNegative(carbs) ? carbs : 0,
+      fat: isFiniteNonNegative(fat) ? fat : 0,
+    },
+    defaultUnit,
+    units: cleanUnits,
+    ...(f.isCustom ? { isCustom: true } : {}),
+    ...(f.isRecipe ? { isRecipe: true } : {}),
+  }
+}
+
+/** Sanitizes an untrusted LoggedFoodEntry object so invalid mealType/NaN values never crash TodayMealsList. */
+export function sanitizeImportedEntry(raw: unknown): LoggedFoodEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const e = raw as Partial<LoggedFoodEntry>
+  if (typeof e.id !== 'string' || !e.id.trim()) return null
+  if (typeof e.dateKey !== 'string' || !DATE_KEY_REGEX.test(e.dateKey)) return null
+  if (typeof e.foodName !== 'string' || !e.foodName.trim()) return null
+  if (!isFiniteNonNegative(e.kcal)) return null
+
+  const mealType: MealType =
+    typeof e.mealType === 'string' && VALID_MEAL_TYPES.has(e.mealType as MealType)
+      ? (e.mealType as MealType)
+      : 'snack'
+
+  const quantity =
+    typeof e.quantity === 'number' && Number.isFinite(e.quantity) && e.quantity > 0
+      ? e.quantity
+      : 1
+
+  return {
+    id: e.id.trim(),
+    dateKey: e.dateKey,
+    timestamp:
+      typeof e.timestamp === 'number' && Number.isFinite(e.timestamp) && e.timestamp > 0
+        ? e.timestamp
+        : Date.now(),
+    mealType,
+    foodId: typeof e.foodId === 'string' && e.foodId.trim() ? e.foodId.trim() : 'custom',
+    foodName: e.foodName.trim(),
+    quantity,
+    unit: typeof e.unit === 'string' && e.unit.trim() ? e.unit.trim() : 'پرس',
+    totalGrams: isFiniteNonNegative(e.totalGrams) ? e.totalGrams : 100,
+    kcal: Math.round(e.kcal),
+    protein: isFiniteNonNegative(e.protein) ? e.protein : 0,
+    carbs: isFiniteNonNegative(e.carbs) ? e.carbs : 0,
+    fat: isFiniteNonNegative(e.fat) ? e.fat : 0,
+    ...(typeof e.sourceText === 'string' ? { sourceText: e.sourceText } : {}),
+  }
 }
 
 /**
@@ -93,12 +215,22 @@ export function computeLoggingStreak(entries: LoggedFoodEntry[], todayKey: strin
 runStorageMigrations()
 
 export function useNutritionStore() {
-  const [foods, setFoods] = useState<FoodItem[]>(() =>
-    mergeDefaultCatalog(readStorageJson<FoodItem[] | null>(STORAGE_KEYS.foods, null)),
-  )
+  const [initialCatalogUpgraded] = useState<{ foods: FoodItem[]; needsWrite: boolean }>(() => {
+    const raw = readStorageJson<FoodItem[] | null>(STORAGE_KEYS.foods, null)
+    const sanitized = Array.isArray(raw)
+      ? raw.map(sanitizeImportedFood).filter((f): f is FoodItem => f !== null)
+      : null
+    const merged = mergeDefaultCatalog(sanitized)
+    const needsWrite = sanitized !== null && merged.length !== sanitized.length
+    return { foods: merged, needsWrite }
+  })
+
+  const [foods, setFoods] = useState<FoodItem[]>(initialCatalogUpgraded.foods)
   const [entries, setEntries] = useState<LoggedFoodEntry[]>(() => {
-    const raw = readStorageJson<LoggedFoodEntry[] | null>(STORAGE_KEYS.entries, null)
-    return Array.isArray(raw) ? raw : []
+    const raw = readStorageJson<unknown[] | null>(STORAGE_KEYS.entries, null)
+    return Array.isArray(raw)
+      ? raw.map(sanitizeImportedEntry).filter((e): e is LoggedFoodEntry => e !== null)
+      : []
   })
   const [goals, setGoals] = useState<UserGoals>(() =>
     normalizeGoals(readStorageJson<Partial<UserGoals> | null>(STORAGE_KEYS.goals, null)),
@@ -131,6 +263,7 @@ export function useNutritionStore() {
 
   const entriesRef = useRef<LoggedFoodEntry[]>(entries)
   const foodsRef = useRef<FoodItem[]>(foods)
+  const hydratedKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     entriesRef.current = entries
@@ -140,7 +273,6 @@ export function useNutritionStore() {
     foodsRef.current = foods
   }, [foods])
 
-  // Request durable browser storage via StorageManager API
   useEffect(() => {
     let active = true
     requestPersistentStorage().then((status) => {
@@ -151,18 +283,24 @@ export function useNutritionStore() {
     }
   }, [])
 
-  // Apply light/dark root theme class cleanly
   useEffect(() => {
     const root = document.documentElement
     root.classList.remove('dark', 'light')
     root.classList.add(theme)
     const themeMeta = document.querySelector('meta[name="theme-color"]')
     if (themeMeta) {
-      themeMeta.setAttribute('content', theme === 'dark' ? '#0C0C0D' : '#F6F7F9')
+      themeMeta.setAttribute('content', theme === 'dark' ? '#0C0C0D' : '#F4F5F7')
     }
   }, [theme])
 
-  const persistWithFeedback = useCallback(<T,>(key: string, value: T) => {
+  const persistOnChange = useCallback(<T,>(key: string, value: T, forceInitial = false) => {
+    if (!hydratedKeysRef.current.has(key)) {
+      hydratedKeysRef.current.add(key)
+      // Skip redundant ~100KB JSON re-serialization on initial mount if key already exists & wasn't upgraded
+      if (!forceInitial && typeof window !== 'undefined' && window.localStorage.getItem(key) !== null) {
+        return
+      }
+    }
     const res = writeStorageJson(key, value)
     if (!res.ok) {
       const msg = res.error ?? 'خطا در ذخیره‌سازی محلی'
@@ -171,38 +309,38 @@ export function useNutritionStore() {
   }, [])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.foods, foods)
-  }, [foods, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.foods, foods, initialCatalogUpgraded.needsWrite)
+  }, [foods, initialCatalogUpgraded.needsWrite, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.entries, entries)
-  }, [entries, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.entries, entries)
+  }, [entries, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.goals, goals)
-  }, [goals, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.goals, goals)
+  }, [goals, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.water, waterByDate)
-  }, [waterByDate, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.water, waterByDate)
+  }, [waterByDate, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.weights, weights)
-  }, [weights, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.weights, weights)
+  }, [weights, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.templates, templates)
-  }, [templates, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.templates, templates)
+  }, [templates, persistOnChange])
 
   useEffect(() => {
-    persistWithFeedback(STORAGE_KEYS.theme, theme)
-  }, [theme, persistWithFeedback])
+    persistOnChange(STORAGE_KEYS.theme, theme)
+  }, [theme, persistOnChange])
 
   useEffect(() => {
     if (lastBackupAt !== null) {
-      persistWithFeedback(STORAGE_KEYS.lastBackupAt, lastBackupAt)
+      persistOnChange(STORAGE_KEYS.lastBackupAt, lastBackupAt)
     }
-  }, [lastBackupAt, persistWithFeedback])
+  }, [lastBackupAt, persistOnChange])
 
   // Real-time Cross-Tab Synchronization via window 'storage' event
   useEffect(() => {
@@ -211,13 +349,20 @@ export function useNutritionStore() {
       try {
         switch (event.key) {
           case STORAGE_KEYS.foods: {
-            const next = JSON.parse(event.newValue) as FoodItem[]
-            if (Array.isArray(next)) setFoods(mergeDefaultCatalog(next))
+            const next = JSON.parse(event.newValue) as unknown[]
+            if (Array.isArray(next)) {
+              const clean = next.map(sanitizeImportedFood).filter((f): f is FoodItem => f !== null)
+              setFoods(mergeDefaultCatalog(clean))
+            }
             break
           }
           case STORAGE_KEYS.entries: {
-            const next = JSON.parse(event.newValue) as LoggedFoodEntry[]
-            if (Array.isArray(next)) setEntries(next)
+            const next = JSON.parse(event.newValue) as unknown[]
+            if (Array.isArray(next)) {
+              setEntries(
+                next.map(sanitizeImportedEntry).filter((e): e is LoggedFoodEntry => e !== null),
+              )
+            }
             break
           }
           case STORAGE_KEYS.goals: {
@@ -263,7 +408,6 @@ export function useNutritionStore() {
 
   const [mountNow] = useState(() => Date.now())
 
-  // Weekly backup reminder condition (triggers if user has >= 5 entries and > 7 days since last backup)
   const shouldRemindBackup = useMemo(() => {
     if (entries.length < 5) return false
     if (lastBackupAt === null) {
@@ -319,7 +463,6 @@ export function useNutritionStore() {
     })
   }, [])
 
-  /** Supports inline editing of quantity, unit (recalculating via food catalog), and meal category. */
   const updateEntry = useCallback(
     (entryId: string, patch: { quantity?: number; unit?: string; mealType?: MealType }) => {
       setEntries((prev) =>
@@ -328,7 +471,6 @@ export function useNutritionStore() {
           const nextMealType = patch.mealType ?? entry.mealType
           const nextUnit = patch.unit ?? entry.unit
 
-          // Unit change: recalculate precisely from matching FoodItem in catalog
           if (patch.unit !== undefined && patch.unit !== entry.unit) {
             const matchedFood = foodsRef.current.find((f) => f.id === entry.foodId)
             if (matchedFood) {
@@ -549,25 +691,25 @@ export function useNutritionStore() {
           }
         }
 
-        const validFoods = parsed.foods.filter(
-          (f) =>
-            f &&
-            typeof f.id === 'string' &&
-            typeof f.name === 'string' &&
-            f.per100g &&
-            typeof f.per100g.kcal === 'number' &&
-            Array.isArray(f.units) &&
-            f.units.length > 0,
-        )
+        const seenFoodIds = new Set<string>()
+        const validFoods: FoodItem[] = []
+        for (const item of parsed.foods) {
+          const clean = sanitizeImportedFood(item)
+          if (clean && !seenFoodIds.has(clean.id)) {
+            seenFoodIds.add(clean.id)
+            validFoods.push(clean)
+          }
+        }
 
-        const validEntries = parsed.entries.filter(
-          (e) =>
-            e &&
-            typeof e.id === 'string' &&
-            typeof e.dateKey === 'string' &&
-            typeof e.foodName === 'string' &&
-            typeof e.kcal === 'number',
-        )
+        const seenEntryIds = new Set<string>()
+        const validEntries: LoggedFoodEntry[] = []
+        for (const entry of parsed.entries) {
+          const clean = sanitizeImportedEntry(entry)
+          if (clean && !seenEntryIds.has(clean.id)) {
+            seenEntryIds.add(clean.id)
+            validEntries.push(clean)
+          }
+        }
 
         if (validFoods.length === 0) {
           return { ok: false, error: 'هیچ غذای معتبری در فایل پشتیبان یافت نشد.' }
@@ -579,7 +721,7 @@ export function useNutritionStore() {
         if (parsed.waterByDate && typeof parsed.waterByDate === 'object') {
           const cleanWater: Record<string, number> = {}
           for (const [k, v] of Object.entries(parsed.waterByDate)) {
-            if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+            if (DATE_KEY_REGEX.test(k) && typeof v === 'number' && Number.isFinite(v) && v >= 0) {
               cleanWater[k] = Math.min(30, Math.round(v))
             }
           }
@@ -591,7 +733,9 @@ export function useNutritionStore() {
             (w) =>
               w &&
               typeof w.dateKey === 'string' &&
+              DATE_KEY_REGEX.test(w.dateKey) &&
               typeof w.weightKg === 'number' &&
+              Number.isFinite(w.weightKg) &&
               w.weightKg >= 25 &&
               w.weightKg <= 300,
           )
@@ -600,7 +744,12 @@ export function useNutritionStore() {
 
         if (Array.isArray(parsed.templates)) {
           const cleanTemplates = parsed.templates.filter(
-            (t) => t && typeof t.id === 'string' && typeof t.name === 'string' && Array.isArray(t.items),
+            (t) =>
+              t &&
+              typeof t.id === 'string' &&
+              typeof t.name === 'string' &&
+              VALID_MEAL_TYPES.has(t.mealType) &&
+              Array.isArray(t.items),
           )
           setTemplates(cleanTemplates)
         }

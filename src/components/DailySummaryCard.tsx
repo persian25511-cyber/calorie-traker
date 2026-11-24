@@ -1,5 +1,5 @@
 import { Check, Copy, Droplets, Minus, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MacroValues, UserGoals } from '../types/nutrition'
 import { formatFaNumber } from '../utils/persianFormat'
 
@@ -23,6 +23,15 @@ export function DailySummaryCard({
   onCopyDailyReport,
 }: DailySummaryCardProps) {
   const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current)
+      }
+    }
+  }, [])
 
   const ratio = goals.dailyKcal > 0 ? consumed.kcal / goals.dailyKcal : 0
   const clampedRatio = Math.min(1, Math.max(0, ratio))
@@ -72,8 +81,14 @@ export function DailySummaryCard({
   const handleCopy = async () => {
     const ok = await onCopyDailyReport()
     if (ok) {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current)
+      }
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied(false)
+        copyTimerRef.current = null
+      }, 2000)
     }
   }
 
@@ -126,7 +141,7 @@ export function DailySummaryCard({
               cy={size / 2}
               r={radius}
               fill="none"
-              stroke="#242429"
+              stroke="var(--ring-track)"
               strokeWidth={strokeWidth}
             />
             <circle

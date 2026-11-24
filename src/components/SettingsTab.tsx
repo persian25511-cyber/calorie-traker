@@ -103,12 +103,28 @@ export function SettingsTab({
   onResetDefaultFoods,
   onClearAllEntries,
 }: SettingsTabProps) {
+  const [prevGoals, setPrevGoals] = useState(goals)
   const [kcalInput, setKcalInput] = useState(String(goals.dailyKcal))
   const [proteinInput, setProteinInput] = useState(String(goals.proteinGrams))
   const [carbsInput, setCarbsInput] = useState(String(goals.carbsGrams))
   const [fatInput, setFatInput] = useState(String(goals.fatGrams))
   const [waterInput, setWaterInput] = useState(String(goals.waterGoalGlasses))
   const [savedNotice, setSavedNotice] = useState(false)
+
+  if (
+    prevGoals.dailyKcal !== goals.dailyKcal ||
+    prevGoals.proteinGrams !== goals.proteinGrams ||
+    prevGoals.carbsGrams !== goals.carbsGrams ||
+    prevGoals.fatGrams !== goals.fatGrams ||
+    prevGoals.waterGoalGlasses !== goals.waterGoalGlasses
+  ) {
+    setPrevGoals(goals)
+    setKcalInput(String(goals.dailyKcal))
+    setProteinInput(String(goals.proteinGrams))
+    setCarbsInput(String(goals.carbsGrams))
+    setFatInput(String(goals.fatGrams))
+    setWaterInput(String(goals.waterGoalGlasses))
+  }
 
   // Smart Persian TDEE Calculator state (strictly 18+)
   const [calcOpen, setCalcOpen] = useState(false)

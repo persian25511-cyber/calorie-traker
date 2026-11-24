@@ -28,22 +28,25 @@ export interface StorageWriteResult {
  * Safely migrates any existing v1 localStorage keys into v2 schema keys
  * without deleting legacy data until v2 write succeeds.
  */
-export function runStorageMigrations(): void {
-  if (typeof window === 'undefined') return
+export function runStorageMigrations(
+  storage: Pick<Storage, 'getItem' | 'setItem'> | null =
+    typeof window !== 'undefined' ? window.localStorage : null,
+): void {
+  if (!storage) return
   try {
-    const rawVersion = window.localStorage.getItem(STORAGE_KEYS.schemaVersion)
+    const rawVersion = storage.getItem(STORAGE_KEYS.schemaVersion)
     const currentVersion = rawVersion ? Number(rawVersion) : 0
     if (currentVersion >= STORAGE_SCHEMA_VERSION) return
 
     for (const [v1Key, v2Key] of LEGACY_V1_MAP) {
-      const existingV2 = window.localStorage.getItem(v2Key)
-      const legacyV1 = window.localStorage.getItem(v1Key)
+      const existingV2 = storage.getItem(v2Key)
+      const legacyV1 = storage.getItem(v1Key)
       if (!existingV2 && legacyV1) {
-        window.localStorage.setItem(v2Key, legacyV1)
+        storage.setItem(v2Key, legacyV1)
       }
     }
 
-    window.localStorage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION))
+    storage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION))
   } catch {
     // Migration error will be surfaced on next write if storage is locked/full
   }

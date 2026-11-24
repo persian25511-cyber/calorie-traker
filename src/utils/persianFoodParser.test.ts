@@ -288,11 +288,57 @@ describe('Persian Natural Language Food Parser', () => {
     expect(extractCleanFoodName('150 گرم خوراک مخصوص', DEFAULT_IRANIAN_FOODS)).toBe('خوراک مخصوص')
   })
 
-  it('ensures pre-seeded Iranian food database has at least 300 items with valid macros', () => {
+  it('parses compound Persian number words (صد و پنجاه، بیست و پنج، صد و بیست و پنج) without splitting on و', () => {
+    const result = parsePersianFoodInput(
+      'صد و پنجاه گرم سینه مرغ گریل و بیست و پنج عدد پسته و صد و بیست و پنج گرم نان سنگک',
+      DEFAULT_IRANIAN_FOODS,
+    )
+
+    expect(result.unmatchedSegments).toEqual([])
+    expect(result.items).toHaveLength(3)
+    expect(result.items[0]).toMatchObject({ quantity: 150, unit: 'گرم', totalGrams: 150 })
+    expect(result.items[0].food.id).toBe('grilled-chicken-breast')
+    expect(result.items[1]).toMatchObject({ quantity: 25, unit: 'عدد' })
+    expect(result.items[1].food.id).toBe('pistachio')
+    expect(result.items[2]).toMatchObject({ quantity: 125, unit: 'گرم', totalGrams: 125 })
+    expect(result.items[2].food.id).toBe('nan-sangak')
+  })
+
+  it('handles punctuation, colloquial "نصف یه", and "کیلو / کیلوگرم" weight units', () => {
+    const result = parsePersianFoodInput(
+      'دو کفگیر قورمه‌سبزی! و نصف یه موز و نیم کیلو هندوانه.',
+      DEFAULT_IRANIAN_FOODS,
+    )
+
+    expect(result.unmatchedSegments).toEqual([])
+    expect(result.items).toHaveLength(3)
+    expect(result.items[0]).toMatchObject({ quantity: 2, unit: 'کفگیر' })
+    expect(result.items[0].food.id).toBe('ghormeh-sabzi')
+    expect(result.items[1]).toMatchObject({ quantity: 0.5, unit: 'عدد' })
+    expect(result.items[1].food.id).toBe('banana')
+    expect(result.items[2]).toMatchObject({ quantity: 0.5, unit: 'کیلوگرم', totalGrams: 500 })
+    expect(result.items[2].food.id).toBe('watermelon')
+  })
+
+  it('ensures pre-seeded Iranian food database has 300+ items with valid macros and zero alias collisions', () => {
     expect(DEFAULT_IRANIAN_FOODS.length).toBeGreaterThanOrEqual(300)
+    const seenIds = new Set<string>()
+    const seenCompactPhrases = new Map<string, string>()
+
     for (const food of DEFAULT_IRANIAN_FOODS) {
+      expect(seenIds.has(food.id)).toBe(false)
+      seenIds.add(food.id)
       expect(food.units.length).toBeGreaterThanOrEqual(2)
       expect(food.per100g.kcal).toBeGreaterThan(0)
+
+      for (const phrase of [food.name, ...food.aliases]) {
+        const key = toCompactKey(phrase)
+        const existingOwner = seenCompactPhrases.get(key)
+        if (existingOwner && existingOwner !== food.id) {
+          throw new Error(`Duplicate catalog phrase "${phrase}" shared by ${existingOwner} and ${food.id}`)
+        }
+        seenCompactPhrases.set(key, food.id)
+      }
     }
   })
 })

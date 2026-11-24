@@ -122,12 +122,28 @@ export function FoodDatabaseTab({
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [visibleLimit, setVisibleLimit] = useState(60)
+  const [prevPrefill, setPrevPrefill] = useState(prefillNewFoodName)
   const [formOpen, setFormOpen] = useState(() => Boolean(prefillNewFoodName))
   const [modalMode, setModalMode] = useState<ModalMode>('single')
   const [formState, setFormState] = useState<FoodFormState>(() =>
     createEmptyForm(prefillNewFoodName ?? ''),
   )
   const [formError, setFormError] = useState<string | null>(null)
+
+  if (prevPrefill !== prefillNewFoodName) {
+    setPrevPrefill(prefillNewFoodName)
+    if (prefillNewFoodName) {
+      setModalMode('single')
+      setFormState(createEmptyForm(prefillNewFoodName))
+      setFormError(null)
+      setFormOpen(true)
+    }
+  }
+
+  const selectCategory = (next: CategoryFilter) => {
+    setCategoryFilter(next)
+    setVisibleLimit(60)
+  }
 
   // Multi-ingredient Recipe Builder state
   const [recipeName, setRecipeName] = useState('')
@@ -414,7 +430,7 @@ export function FoodDatabaseTab({
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
-            onClick={() => setCategoryFilter('all')}
+            onClick={() => selectCategory('all')}
             className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
               categoryFilter === 'all'
                 ? 'bg-zinc-100 text-[#0C0C0D] font-semibold'
@@ -427,7 +443,7 @@ export function FoodDatabaseTab({
           {customCount > 0 && (
             <button
               type="button"
-              onClick={() => setCategoryFilter('custom')}
+              onClick={() => selectCategory('custom')}
               className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
                 categoryFilter === 'custom'
                   ? 'bg-emerald-500 text-[#051B11] font-semibold'
@@ -442,7 +458,7 @@ export function FoodDatabaseTab({
             <button
               key={cat}
               type="button"
-              onClick={() => setCategoryFilter(cat)}
+              onClick={() => selectCategory(cat)}
               className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
                 categoryFilter === cat
                   ? 'bg-zinc-100 text-[#0C0C0D] font-semibold'

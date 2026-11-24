@@ -66,7 +66,7 @@ export function TodayMealsList({
       snack: [],
     }
     for (const entry of dayEntries) {
-      map[entry.mealType].push(entry)
+      map[entry.mealType]?.push(entry)
     }
     return map
   }, [dayEntries])
@@ -79,7 +79,7 @@ export function TodayMealsList({
       snack: [],
     }
     for (const entry of previousDayEntries) {
-      map[entry.mealType].push(entry)
+      map[entry.mealType]?.push(entry)
     }
     return MEAL_TYPE_ORDER.map((type) => ({
       mealType: type,

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'kalorishomar-v3'
+const CACHE_VERSION = '__SW_CACHE_VERSION__'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`
 const MAX_RUNTIME_ENTRIES = 80
@@ -12,6 +12,7 @@ const APP_SHELL_ASSETS = [
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
   '/apple-touch-icon.png',
+  /* __SW_PRECACHE_ASSETS__ */
 ]
 
 /** Caps runtime cache size so stale hashed assets never accumulate indefinitely. */
@@ -73,7 +74,11 @@ self.addEventListener('fetch', (event) => {
           }
           return response
         })
-        .catch(() => caches.match('/index.html').then((cached) => cached || Response.error())),
+        .catch(() =>
+          caches
+            .match('/index.html', { ignoreVary: true })
+            .then((cached) => cached || Response.error()),
+        ),
     )
     return
   }
@@ -89,7 +94,7 @@ self.addEventListener('fetch', (event) => {
 
   if (isStaticAsset) {
     event.respondWith(
-      caches.match(request).then((cached) => {
+      caches.match(request, { ignoreVary: true }).then((cached) => {
         if (cached) return cached
         return fetch(request)
           .then((response) => {

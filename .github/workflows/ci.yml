@@ -71,10 +71,10 @@ jobs:
           path: dist
 
       - name: Install Playwright Chromium for offline E2E
-        run: npx --yes playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
-      - name: Run Offline PWA E2E test (Log meal -> Offline -> Reload)
-        run: node scripts/e2e-offline.mjs
+      - name: Run Offline PWA E2E test (Log meal -> Offline -> Reload & All Tabs)
+        run: npm run test:e2e
 
       - name: Run Lighthouse CI audit
         run: npx --yes @lhci/cli@0.15.x autorun

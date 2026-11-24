@@ -15,11 +15,9 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DailySummaryCard } from './components/DailySummaryCard'
-import { FoodDatabaseTab } from './components/FoodDatabaseTab'
 import { QuickEntryBar } from './components/QuickEntryBar'
-import { SettingsTab } from './components/SettingsTab'
 import { TodayMealsList } from './components/TodayMealsList'
 import { APP_CONFIG } from './config/env'
 import { computeLoggingStreak, useNutritionStore } from './hooks/useNutritionStore'
@@ -44,9 +42,16 @@ import {
 } from './utils/persianFormat'
 import { usePwaStatus } from './utils/pwa'
 
-const WeeklyTrendsTab = lazy(() =>
-  import('./components/WeeklyTrendsTab').then((m) => ({ default: m.WeeklyTrendsTab })),
-)
+const loadWeeklyTrendsTab = () =>
+  import('./components/WeeklyTrendsTab').then((m) => ({ default: m.WeeklyTrendsTab }))
+const loadFoodDatabaseTab = () =>
+  import('./components/FoodDatabaseTab').then((m) => ({ default: m.FoodDatabaseTab }))
+const loadSettingsTab = () =>
+  import('./components/SettingsTab').then((m) => ({ default: m.SettingsTab }))
+
+const WeeklyTrendsTab = lazy(loadWeeklyTrendsTab)
+const FoodDatabaseTab = lazy(loadFoodDatabaseTab)
+const SettingsTab = lazy(loadSettingsTab)
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'ثبت روزانه', icon: Home },
@@ -99,7 +104,7 @@ export function App() {
 
   const pwaStatus = usePwaStatus()
 
-  const todayKey = getLocalDateKey()
+  const [todayKey, setTodayKey] = useState<string>(getLocalDateKey)
   const [activeTab, setActiveTab] = useState<AppTab>('home')
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey)
   const [quickInput, setQuickInput] = useState('')
@@ -108,6 +113,45 @@ export function App() {
   const [backupReminderDismissed, setBackupReminderDismissed] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const checkDateRollover = () => {
+      const freshToday = getLocalDateKey()
+      setTodayKey((prevToday) => {
+        if (prevToday === freshToday) return prevToday
+        setSelectedDateKey((prevSelected) =>
+          prevSelected === prevToday ? freshToday : prevSelected,
+        )
+        return freshToday
+      })
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkDateRollover()
+      }
+    }
+
+    window.addEventListener('focus', checkDateRollover)
+    document.addEventListener('visibilitychange', onVisibility)
+    const intervalId = window.setInterval(checkDateRollover, 60_000)
+
+    // Preload secondary non-chart tabs shortly after initial Home interactive paint
+    const preloadTimer = window.setTimeout(() => {
+      void loadFoodDatabaseTab()
+      void loadSettingsTab()
+    }, 900)
+
+    return () => {
+      window.removeEventListener('focus', checkDateRollover)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.clearInterval(intervalId)
+      window.clearTimeout(preloadTimer)
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current)
+      }
+    }
+  }, [])
 
   const showToast = useCallback((message: string, undoEntry?: LoggedFoodEntry) => {
     if (toastTimerRef.current !== null) {
@@ -564,6 +608,7 @@ export function App() {
               goals={goals}
               weights={weights}
               streakDays={streakDays}
+              todayKey={todayKey}
               onSelectDate={handleSelectDateFromTrends}
               onUpsertWeight={(dk, w) => {
                 upsertWeight(dk, w)
@@ -575,40 +620,56 @@ export function App() {
         )}
 
         {activeTab === 'foods' && (
-          <FoodDatabaseTab
-            foods={foods}
-            prefillNewFoodName={prefillNewFoodName}
-            onConsumePrefillName={() => setPrefillNewFoodName(null)}
-            onAddFood={handleAddFood}
-            onUpdateFood={handleUpdateFood}
-            onDeleteFood={handleDeleteFood}
-            onQuickUseFood={handleQuickUseFood}
-          />
+          <Suspense
+            fallback={
+              <div className="card-surface rounded-2xl p-8 text-center text-xs text-zinc-400">
+                در حال بارگذاری بانک غذاهای ایرانی...
+              </div>
+            }
+          >
+            <FoodDatabaseTab
+              foods={foods}
+              prefillNewFoodName={prefillNewFoodName}
+              onConsumePrefillName={() => setPrefillNewFoodName(null)}
+              onAddFood={handleAddFood}
+              onUpdateFood={handleUpdateFood}
+              onDeleteFood={handleDeleteFood}
+              onQuickUseFood={handleQuickUseFood}
+            />
+          </Suspense>
         )}
 
         {activeTab === 'settings' && (
-          <SettingsTab
-            goals={goals}
-            foodsCount={foods.length}
-            entriesCount={entries.length}
-            theme={theme}
-            lastBackupAt={lastBackupAt}
-            persistenceState={persistenceState}
-            pwaStatus={pwaStatus}
-            onThemeChange={setTheme}
-            onUpdateGoals={(next) => {
-              updateGoals(next)
-              showToast('اهداف روزانه به‌روزرسانی شد')
-            }}
-            onExportJson={exportBackupJson}
-            onExportCsv={exportEntriesCsv}
-            onImportJson={importBackupJson}
-            onResetDefaultFoods={resetDefaultFoods}
-            onClearAllEntries={() => {
-              clearAllEntries()
-              showToast('تاریخچه وعده‌ها پاک شد')
-            }}
-          />
+          <Suspense
+            fallback={
+              <div className="card-surface rounded-2xl p-8 text-center text-xs text-zinc-400">
+                در حال بارگذاری تنظیمات...
+              </div>
+            }
+          >
+            <SettingsTab
+              goals={goals}
+              foodsCount={foods.length}
+              entriesCount={entries.length}
+              theme={theme}
+              lastBackupAt={lastBackupAt}
+              persistenceState={persistenceState}
+              pwaStatus={pwaStatus}
+              onThemeChange={setTheme}
+              onUpdateGoals={(next) => {
+                updateGoals(next)
+                showToast('اهداف روزانه به‌روزرسانی شد')
+              }}
+              onExportJson={exportBackupJson}
+              onExportCsv={exportEntriesCsv}
+              onImportJson={importBackupJson}
+              onResetDefaultFoods={resetDefaultFoods}
+              onClearAllEntries={() => {
+                clearAllEntries()
+                showToast('تاریخچه وعده‌ها پاک شد')
+              }}
+            />
+          </Suspense>
         )}
 
         {/* Concise Educational & Local-Privacy Footer */}

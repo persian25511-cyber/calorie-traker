@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { computeLoggingStreak, mergeDefaultCatalog } from '../hooks/useNutritionStore'
+import {
+  computeLoggingStreak,
+  mergeDefaultCatalog,
+  sanitizeImportedEntry,
+  sanitizeImportedFood,
+} from '../hooks/useNutritionStore'
 import type { FoodItem, LoggedFoodEntry } from '../types/nutrition'
 import {
   formatFaNumber,
@@ -10,6 +15,7 @@ import {
   toAsciiDigits,
   toPersianDigits,
 } from './persianFormat'
+import { STORAGE_KEYS, runStorageMigrations } from './storageMigration'
 
 describe('Persian Formatting & Jalali Date Utilities', () => {
   it('converts digits cleanly between Persian, Arabic-Indic, and ASCII', () => {
@@ -34,7 +40,7 @@ describe('Persian Formatting & Jalali Date Utilities', () => {
   })
 })
 
-describe('Store Migration & Streak Helpers', () => {
+describe('Store Migration, Import Sanitizers & Streak Helpers', () => {
   it('merges newly added default foods without overwriting custom or edited foods', () => {
     const editedGhormeh: FoodItem = {
       id: 'ghormeh-sabzi',
@@ -52,6 +58,59 @@ describe('Store Migration & Streak Helpers', () => {
     expect(merged.length).toBeGreaterThanOrEqual(70)
     expect(merged.find((f) => f.id === 'ghormeh-sabzi')?.name).toBe('قورمه‌سبزی مامان‌پز')
     expect(merged.find((f) => f.id === 'tahchin-morgh')).toBeDefined()
+  })
+
+  it('sanitizes untrusted imported JSON foods and entries against missing arrays, invalid mealType, or NaN', () => {
+    const food = sanitizeImportedFood({
+      id: 'custom-ash',
+      name: 'آش محلی',
+      // missing aliases & invalid category & missing گرم unit
+      category: 'unknown_cat',
+      per100g: { kcal: 120, protein: Number.NaN, carbs: 18, fat: 4 },
+      defaultUnit: 'کاسه',
+      units: [{ name: 'کاسه', grams: 250 }],
+      isCustom: true,
+    })
+    expect(food).not.toBeNull()
+    expect(food?.aliases).toEqual([])
+    expect(food?.category).toBe('stews_mains')
+    expect(food?.per100g.protein).toBe(0)
+    expect(food?.units.some((u) => u.name === 'گرم')).toBe(true)
+
+    expect(sanitizeImportedFood({ id: 'bad', name: 'بدون کالری', per100g: { kcal: 0 } })).toBeNull()
+
+    const entry = sanitizeImportedEntry({
+      id: 'entry-1',
+      dateKey: '2026-11-22',
+      mealType: 'midnight_feast', // invalid mealType -> fallback to snack
+      foodName: 'سیب',
+      kcal: 78.4,
+      protein: Number.NaN,
+    })
+    expect(entry).not.toBeNull()
+    expect(entry?.mealType).toBe('snack')
+    expect(entry?.kcal).toBe(78)
+    expect(entry?.protein).toBe(0)
+
+    expect(sanitizeImportedEntry({ id: 'bad-date', dateKey: '1405/09/01', foodName: 'سیب', kcal: 50 })).toBeNull()
+  })
+
+  it('migrates legacy v1 localStorage keys cleanly to v2 schema', () => {
+    const store = new Map<string, string>([
+      ['kalorishomar_v1_entries', JSON.stringify([{ id: 'e1' }])],
+      ['kalorishomar_v1_goals', JSON.stringify({ dailyKcal: 1900 })],
+    ])
+    const mockStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        store.set(k, v)
+      },
+    }
+
+    runStorageMigrations(mockStorage)
+    expect(store.get(STORAGE_KEYS.schemaVersion)).toBe('2')
+    expect(store.get(STORAGE_KEYS.entries)).toBe(JSON.stringify([{ id: 'e1' }]))
+    expect(store.get(STORAGE_KEYS.goals)).toBe(JSON.stringify({ dailyKcal: 1900 }))
   })
 
   it('computes consecutive daily logging streak accurately', () => {

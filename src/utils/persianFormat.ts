@@ -2,6 +2,79 @@ import type { MealType } from '../types/nutrition'
 
 const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'] as const
 
+// Cached Intl formatters (avoids expensive V8 Intl instantiation inside render/CSV loops)
+const NUMBER_FORMATTER_CACHE = new Map<number, Intl.NumberFormat | null>()
+const JALALI_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>()
+let TIME_FORMATTER: Intl.DateTimeFormat | null | undefined
+
+function getNumberFormatter(maximumFractionDigits: number): Intl.NumberFormat | null {
+  if (NUMBER_FORMATTER_CACHE.has(maximumFractionDigits)) {
+    return NUMBER_FORMATTER_CACHE.get(maximumFractionDigits) ?? null
+  }
+  try {
+    const fmt = new Intl.NumberFormat('fa-IR', { maximumFractionDigits })
+    NUMBER_FORMATTER_CACHE.set(maximumFractionDigits, fmt)
+    return fmt
+  } catch {
+    NUMBER_FORMATTER_CACHE.set(maximumFractionDigits, null)
+    return null
+  }
+}
+
+const JALALI_STYLE_OPTIONS: Record<
+  'full' | 'medium' | 'short' | 'weekday',
+  Intl.DateTimeFormatOptions
+> = {
+  full: {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  },
+  medium: {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  },
+  short: {
+    day: 'numeric',
+    month: 'short',
+  },
+  weekday: {
+    weekday: 'short',
+  },
+}
+
+function getJalaliFormatter(
+  style: 'full' | 'medium' | 'short' | 'weekday',
+): Intl.DateTimeFormat {
+  const cached = JALALI_FORMATTER_CACHE.get(style)
+  if (cached) return cached
+  try {
+    const fmt = new Intl.DateTimeFormat('fa-IR-u-ca-persian', JALALI_STYLE_OPTIONS[style])
+    JALALI_FORMATTER_CACHE.set(style, fmt)
+    return fmt
+  } catch {
+    const fallback = new Intl.DateTimeFormat('fa-IR', JALALI_STYLE_OPTIONS[style])
+    JALALI_FORMATTER_CACHE.set(style, fallback)
+    return fallback
+  }
+}
+
+function getTimeFormatter(): Intl.DateTimeFormat | null {
+  if (TIME_FORMATTER !== undefined) return TIME_FORMATTER
+  try {
+    TIME_FORMATTER = new Intl.DateTimeFormat('fa-IR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  } catch {
+    TIME_FORMATTER = null
+  }
+  return TIME_FORMATTER
+}
+
 /** Converts ASCII (0-9) and Arabic-Indic (٠-٩) digits to Persian numerals (۰-۹). */
 export function toPersianDigits(value: number | string): string {
   return String(value)
@@ -23,16 +96,14 @@ export function formatFaNumber(value: number, maximumFractionDigits = 0): string
     maximumFractionDigits === 0
       ? Math.round(value)
       : Math.round(value * 10 ** maximumFractionDigits) / 10 ** maximumFractionDigits
-  try {
-    return new Intl.NumberFormat('fa-IR', {
-      maximumFractionDigits,
-    }).format(rounded)
-  } catch {
-    return toPersianDigits(rounded).replace('.', '٫')
+  const formatter = getNumberFormatter(maximumFractionDigits)
+  if (formatter) {
+    return formatter.format(rounded)
   }
+  return toPersianDigits(rounded).replace('.', '٫')
 }
 
-/** Formats quantity nicely in Persian (e.g. 0.5 -> 'نصف' or '۰٫۵', 1.5 -> '۱٫۵', 2 -> '۲'). */
+/** Formats quantity nicely in Persian (e.g. 0.5 -> '۰٫۵', 1.5 -> '۱٫۵', 2 -> '۲'). */
 export function formatQuantityFa(quantity: number): string {
   const clean = Math.round(quantity * 100) / 100
   if (Math.abs(clean - Math.round(clean)) < 0.001) {
@@ -52,7 +123,7 @@ export function getLocalDateKey(date: Date = new Date()): string {
 /** Parses a local YYYY-MM-DD key back into a Date at local noon (avoids DST edges). */
 export function dateFromKey(dateKey: string): Date {
   const [y, m, d] = dateKey.split('-').map(Number)
-  return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0)
+  return new Date(y || 2026, (m || 1) - 1, d || 1, 12, 0, 0)
 }
 
 /** Shifts a YYYY-MM-DD key by deltaDays (e.g., -1 for yesterday). */
@@ -62,65 +133,46 @@ export function shiftDateKey(dateKey: string, deltaDays: number): string {
   return getLocalDateKey(d)
 }
 
-/** Formats a Date in the Iranian Jalali (Shamsi) calendar using Intl.DateTimeFormat('fa-IR'). */
+const COMPACT_WEEKDAY_MAP: Record<number, string> = {
+  6: 'شنبه',
+  0: '۱ش',
+  1: '۲ش',
+  2: '۳ش',
+  3: '۴ش',
+  4: '۵ش',
+  5: 'جمعه',
+}
+
+/** Formats a Date in the Iranian Jalali (Shamsi) calendar using cached Intl.DateTimeFormat('fa-IR'). */
 export function formatJalaliDate(
   date: Date,
   style: 'full' | 'medium' | 'short' | 'weekday' | 'weekdayCompact' = 'full',
 ): string {
   if (style === 'weekdayCompact') {
-    const compactMap: Record<number, string> = {
-      6: 'شنبه',
-      0: '۱ش',
-      1: '۲ش',
-      2: '۳ش',
-      3: '۴ش',
-      4: '۵ش',
-      5: 'جمعه',
-    }
-    return compactMap[date.getDay()] ?? ''
+    return COMPACT_WEEKDAY_MAP[date.getDay()] ?? ''
   }
 
-  const optionsMap: Record<'full' | 'medium' | 'short' | 'weekday', Intl.DateTimeFormatOptions> = {
-    full: {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    },
-    medium: {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    },
-    short: {
-      day: 'numeric',
-      month: 'short',
-    },
-    weekday: {
-      weekday: 'short',
-    },
-  }
-
-  try {
-    const formatter = new Intl.DateTimeFormat('fa-IR-u-ca-persian', optionsMap[style])
-    if (style === 'full' || style === 'medium') {
-      const parts = formatter.formatToParts(date)
-      const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
-      const weekday = get('weekday')
-      const day = get('day')
-      const month = get('month')
-      const year = get('year')
-      if (style === 'full' && weekday && day && month && year) {
-        return `${weekday}، ${day} ${month} ${year}`
-      }
-      if (style === 'medium' && weekday && day && month) {
-        return `${weekday}، ${day} ${month}`
-      }
+  const formatter = getJalaliFormatter(style)
+  if (style === 'full' || style === 'medium') {
+    const parts = formatter.formatToParts(date)
+    let weekday = ''
+    let day = ''
+    let month = ''
+    let year = ''
+    for (const p of parts) {
+      if (p.type === 'weekday') weekday = p.value
+      else if (p.type === 'day') day = p.value
+      else if (p.type === 'month') month = p.value
+      else if (p.type === 'year') year = p.value
     }
-    return formatter.format(date)
-  } catch {
-    return new Intl.DateTimeFormat('fa-IR', optionsMap[style]).format(date)
+    if (style === 'full' && weekday && day && month && year) {
+      return `${weekday}، ${day} ${month} ${year}`
+    }
+    if (style === 'medium' && weekday && day && month) {
+      return `${weekday}، ${day} ${month}`
+    }
   }
+  return formatter.format(date)
 }
 
 export interface DaySlot {
@@ -133,7 +185,7 @@ export interface DaySlot {
   isToday: boolean
 }
 
-/** Returns the last N days (default 7), ending with today (chronological oldest -> newest). */
+/** Returns the last N days (default 7), ending with referenceDate (chronological oldest -> newest). */
 export function getLastNDays(count = 7, referenceDate: Date = new Date()): DaySlot[] {
   const todayKey = getLocalDateKey(referenceDate)
   const slots: DaySlot[] = []
@@ -168,18 +220,14 @@ export function getDefaultMealTypeForHour(hour: number = new Date().getHours()):
   return 'snack'
 }
 
-/** Formats time as HH:MM in Persian digits. */
+/** Formats time as HH:MM in Persian digits using cached Intl formatter. */
 export function formatTimeFa(timestamp: number): string {
   const d = new Date(timestamp)
-  try {
-    return new Intl.DateTimeFormat('fa-IR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(d)
-  } catch {
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    return toPersianDigits(`${hh}:${mm}`)
+  const fmt = getTimeFormatter()
+  if (fmt) {
+    return fmt.format(d)
   }
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return toPersianDigits(`${hh}:${mm}`)
 }

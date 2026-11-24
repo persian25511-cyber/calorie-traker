@@ -24,6 +24,9 @@ html.dark {
   --border-elevated: #2A2A30;
   --text-primary: #FAFAFA;
   --text-secondary: #A1A1AA;
+  --ring-track: #242429;
+  --chart-grid: #232329;
+  --chart-empty-bar: #2A2A31;
   color-scheme: dark;
 }
 
@@ -35,6 +38,9 @@ html.light {
   --border-elevated: #D5D9E2;
   --text-primary: #111318;
   --text-secondary: #525866;
+  --ring-track: #E2E6ED;
+  --chart-grid: #E5E7EB;
+  --chart-empty-bar: #E2E6ED;
   color-scheme: light;
 }
 

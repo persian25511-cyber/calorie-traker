@@ -28,6 +28,7 @@ interface WeeklyTrendsTabProps {
   goals: UserGoals
   weights: WeightEntry[]
   streakDays: number
+  todayKey?: string
   onSelectDate: (dateKey: string) => void
   onUpsertWeight: (dateKey: string, weightKg: number) => void
   onDeleteWeight: (dateKey: string) => void
@@ -59,7 +60,7 @@ function CalorieChartTooltip({ active, payload, goalKcal }: CustomTooltipProps) 
   return (
     <div
       dir="rtl"
-      className="rounded-xl bg-[#161618] border border-[#32323A] px-3.5 py-2.5 shadow-xl text-xs"
+      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-elevated)] px-3.5 py-2.5 shadow-xl text-xs"
     >
       <div className="font-semibold text-zinc-100 mb-1">
         {point.isToday ? `امروز (${point.jalaliShort})` : point.jalaliFull}
@@ -75,7 +76,7 @@ function CalorieChartTooltip({ active, payload, goalKcal }: CustomTooltipProps) 
         </span>
       </div>
       {point.kcal > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-[#26262A] flex items-center gap-3 text-[11px] tabular-nums-fa">
+        <div className="mt-1.5 pt-1.5 border-t border-[var(--border-subtle)] flex items-center gap-3 text-[11px] tabular-nums-fa">
           <span className="text-sky-400">پ: {formatFaNumber(point.protein, 1)}گ</span>
           <span className="text-amber-400">ک: {formatFaNumber(point.carbs, 1)}گ</span>
           <span className="text-rose-400">چ: {formatFaNumber(point.fat, 1)}گ</span>
@@ -103,7 +104,7 @@ function WeightChartTooltip({ active, payload }: WeightTooltipProps) {
   return (
     <div
       dir="rtl"
-      className="rounded-xl bg-[#161618] border border-[#32323A] px-3 py-2 shadow-xl text-xs tabular-nums-fa"
+      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-elevated)] px-3 py-2 shadow-xl text-xs tabular-nums-fa"
     >
       <div className="text-zinc-400 text-[11px]">{pt.jalaliFull}</div>
       <div className="text-sky-400 font-bold mt-0.5">{formatFaNumber(pt.weightKg, 1)} کیلوگرم</div>
@@ -116,6 +117,7 @@ export function WeeklyTrendsTab({
   goals,
   weights,
   streakDays,
+  todayKey = getLocalDateKey(),
   onSelectDate,
   onUpsertWeight,
   onDeleteWeight,
@@ -123,7 +125,7 @@ export function WeeklyTrendsTab({
   const [rangeDays, setRangeDays] = useState<7 | 30>(7)
   const [weightInput, setWeightInput] = useState('')
 
-  const days = useMemo(() => getLastNDays(rangeDays), [rangeDays])
+  const days = useMemo(() => getLastNDays(rangeDays, dateFromKey(todayKey)), [rangeDays, todayKey])
 
   const chartData = useMemo<DayChartPoint[]>(() => {
     const totalsByDay = new Map<
@@ -234,7 +236,7 @@ export function WeeklyTrendsTab({
     e.preventDefault()
     const parsed = Number(toAsciiDigits(weightInput).replace(/٫/g, '.').trim())
     if (!Number.isFinite(parsed) || parsed < 25 || parsed > 300) return
-    onUpsertWeight(getLocalDateKey(), parsed)
+    onUpsertWeight(todayKey, parsed)
     setWeightInput('')
   }
 
@@ -346,7 +348,7 @@ export function WeeklyTrendsTab({
               margin={{ top: 14, right: 8, left: -8, bottom: 4 }}
               barCategoryGap={rangeDays === 7 ? '24%' : '14%'}
             >
-              <CartesianGrid stroke="#232329" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="axisLabel"
                 interval={rangeDays === 7 ? 0 : 4}
@@ -364,7 +366,7 @@ export function WeeklyTrendsTab({
                 tick={{ fill: '#A1A1AA', fontSize: 11, fontFamily: 'Vazirmatn Variable' }}
               />
               <Tooltip
-                cursor={{ fill: 'rgba(255,255,255,0.035)' }}
+                cursor={{ fill: 'rgba(16, 185, 129, 0.06)' }}
                 content={<CalorieChartTooltip goalKcal={goals.dailyKcal} />}
               />
               <ReferenceLine
@@ -381,7 +383,7 @@ export function WeeklyTrendsTab({
               >
                 {chartData.map((entry) => {
                   const isOver = entry.kcal > goals.dailyKcal
-                  let fill = '#2A2A31'
+                  let fill = 'var(--chart-empty-bar)'
                   if (entry.kcal > 0) {
                     if (isOver) {
                       fill = entry.isToday ? '#F43F5E' : '#E11D48'
@@ -496,7 +498,7 @@ export function WeeklyTrendsTab({
           <div dir="ltr" className="w-full h-44" data-testid="weight-progress-chart">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={weightChartPoints} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
-                <CartesianGrid stroke="#232329" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="jalaliShort"
                   axisLine={false}

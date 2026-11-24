@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { APP_CONFIG } from '../config/env'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -32,6 +32,10 @@ export function usePwaStatus(): PwaStatus {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
 
+  // Guard so controllerchange ONLY reloads when the user explicitly clicked "به‌روزرسانی"
+  // (prevents an unexpected reload on a user's very first visit when sw.js calls clients.claim()).
+  const userRequestedUpdateRef = useRef(false)
+
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
@@ -58,11 +62,23 @@ export function usePwaStatus(): PwaStatus {
   }, [])
 
   useEffect(() => {
-    if (!APP_CONFIG.enablePwa || !('serviceWorker' in navigator)) return
+    if (!('serviceWorker' in navigator)) return
+
+    // In Vite HMR dev mode, unregister any previously installed SW so dev assets are never cached stale
+    if (!import.meta.env.PROD || !APP_CONFIG.enablePwa) {
+      if (import.meta.env.DEV) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          for (const reg of regs) {
+            void reg.unregister()
+          }
+        })
+      }
+      return
+    }
 
     let refreshing = false
     const onControllerChange = () => {
-      if (refreshing) return
+      if (!userRequestedUpdateRef.current || refreshing) return
       refreshing = true
       window.location.reload()
     }
@@ -71,7 +87,7 @@ export function usePwaStatus(): PwaStatus {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .then((registration) => {
-        if (registration.waiting) {
+        if (registration.waiting && navigator.serviceWorker.controller) {
           setWaitingWorker(registration.waiting)
         }
         registration.addEventListener('updatefound', () => {
@@ -102,6 +118,7 @@ export function usePwaStatus(): PwaStatus {
   }, [deferredPrompt])
 
   const applyUpdate = useCallback(() => {
+    userRequestedUpdateRef.current = true
     if (waitingWorker) {
       waitingWorker.postMessage({ type: 'SKIP_WAITING' })
     } else {
