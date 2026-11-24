@@ -41,8 +41,8 @@ async function run() {
     page.on('pageerror', (err) => errors.push(err.message))
 
     // 1. Load app ONCE online & wait for Service Worker installation + controller claim
-    //    (No online reload — verifies true single-visit precaching!)
     await page.goto(URL, { waitUntil: 'networkidle' })
+    await page.waitForSelector('[data-testid="onboarding-card"]', { timeout: 5000 })
     await page.evaluate(async () => {
       if (!('serviceWorker' in navigator)) {
         throw new Error('Service Worker not supported')
@@ -57,7 +57,7 @@ async function run() {
       }
     })
 
-    // 2. Log a Persian meal online (also verifying first-visit SW claim did NOT wipe input!)
+    // 2. Log a Persian meal online (also verifying non-blocking onboarding & SW claim)
     await page.locator('#quick-food-input').fill('دو کفگیر قورمه‌سبزی و یک کف دست سنگک')
     await page.locator('#meal-type-lunch').click()
     await page.locator('#submit-meal-btn').click()
@@ -66,6 +66,14 @@ async function run() {
     const onlineKcal = await page.locator('[data-testid="consumed-kcal"]').first().innerText()
     if (onlineKcal !== '۴۲۵') {
       throw new Error(`Expected ۴۲۵ online, got ${onlineKcal}`)
+    }
+
+    // Verify full built-in catalog is NOT dumped into localStorage (v3 user-layer architecture)
+    const hasLegacyFullFoodsKey = await page.evaluate(
+      () => window.localStorage.getItem('kalorishomar_v2_foods') !== null,
+    )
+    if (hasLegacyFullFoodsKey) {
+      throw new Error('Expected kalorishomar_v2_foods NOT to be written in schema v3')
     }
 
     // 3. Go completely OFFLINE & reload — verify SW serves app shell, fonts & local data!
@@ -78,15 +86,23 @@ async function run() {
       throw new Error(`Expected ۴۲۵ after offline reload, got ${offlineKcal}`)
     }
 
-    // 4. Navigate to all lazy-loaded tabs while OFFLINE to prove 100% precache coverage
+    // 4. Navigate to all lazy-loaded tabs while OFFLINE & verify Phase 0-3 features
     await page.locator('#mobile-nav-trends').click()
     await page.waitForSelector('[data-testid="weekly-trends-tab"]', { timeout: 8000 })
+    await page.locator('#history-search-input').fill('قورمه')
+    await page.waitForSelector('[data-testid="history-search-result-row"]', { timeout: 5000 })
 
     await page.locator('#mobile-nav-foods').click()
     await page.waitForSelector('[data-testid="food-database-tab"]', { timeout: 8000 })
+    await page.waitForSelector('[data-testid="food-verified-badge"]', { timeout: 5000 })
 
     await page.locator('#mobile-nav-settings').click()
     await page.waitForSelector('[data-testid="settings-tab"]', { timeout: 8000 })
+    await page.waitForSelector('[data-testid="local-beta-metrics-card"]', { timeout: 5000 })
+
+    // Verify soft health warning for <1200 kcal manual goal
+    await page.locator('#goal-kcal-input').fill('1000')
+    await page.waitForSelector('[data-testid="low-calorie-soft-warning"]', { timeout: 5000 })
 
     // Toggle Light Mode & back to Dark Mode while offline
     await page.locator('#theme-light-btn').click()
@@ -98,7 +114,7 @@ async function run() {
 
     await browser.close()
     console.log(
-      'Offline PWA E2E passed: single-visit SW precache -> meal logged -> offline reload -> all 4 lazy tabs & theme toggle verified with 0 errors!',
+      'Offline PWA E2E passed: single-visit SW precache -> meal logged -> v3 user-layer storage -> offline reload -> history search, verified badges, low-kcal warning, beta metrics & theme verified with 0 errors!',
     )
   } finally {
     server.kill('SIGTERM')
