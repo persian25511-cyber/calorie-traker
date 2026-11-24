@@ -5,6 +5,7 @@ import {
   type FoodItem,
   type FoodUnit,
 } from '../../types/nutrition'
+import { toAsciiDigits } from '../../utils/persianFormat'
 import {
   CATEGORY_ORDER,
   parsePositiveNum,
@@ -93,6 +94,7 @@ export function SingleFoodForm({
     const rawProtein = parsePositiveNum(formState.protein, 0)
     const rawCarbs = parsePositiveNum(formState.carbs, 0)
     const rawFat = parsePositiveNum(formState.fat, 0)
+    const rawFiber = parsePositiveNum(formState.fiber, 0)
 
     const factor = formState.inputMode === 'perUnit' ? 100 / defaultUnitObj.grams : 1
     const per100g = {
@@ -100,12 +102,15 @@ export function SingleFoodForm({
       protein: Math.round(rawProtein * factor * 10) / 10,
       carbs: Math.round(rawCarbs * factor * 10) / 10,
       fat: Math.round(rawFat * factor * 10) / 10,
+      fiber: Math.round(rawFiber * factor * 10) / 10,
     }
 
     const aliases = formState.aliasesText
       .split(/[،,]/)
       .map((a) => a.trim())
       .filter((a) => a.length > 0 && a !== cleanName)
+
+    const cleanBarcode = toAsciiDigits(formState.barcode).replace(/\D/g, '')
 
     const payload: Omit<FoodItem, 'id'> = {
       name: cleanName,
@@ -114,6 +119,7 @@ export function SingleFoodForm({
       per100g,
       defaultUnit: defaultUnitObj.name,
       units: [...parsedUnits, { name: 'گرم', grams: 1 }],
+      ...(cleanBarcode.length >= 8 ? { barcode: cleanBarcode } : {}),
       isCustom: formState.isCustom,
     }
 
@@ -165,18 +171,34 @@ export function SingleFoodForm({
         </div>
       </div>
 
-      <div>
-        <label htmlFor="food-aliases-input" className="block text-xs text-zinc-300 mb-1.5">
-          نام‌های جایگزین (اختیاری، با ویرگول جدا کنید)
-        </label>
-        <input
-          id="food-aliases-input"
-          type="text"
-          value={formState.aliasesText}
-          onChange={(e) => setFormState((p) => ({ ...p, aliasesText: e.target.value }))}
-          placeholder="مثلاً: سوپ جو، سوپ سفید"
-          className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-3 py-2 text-sm text-zinc-100"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="food-aliases-input" className="block text-xs text-zinc-300 mb-1.5">
+            نام‌های جایگزین (با ویرگول)
+          </label>
+          <input
+            id="food-aliases-input"
+            type="text"
+            value={formState.aliasesText}
+            onChange={(e) => setFormState((p) => ({ ...p, aliasesText: e.target.value }))}
+            placeholder="مثلاً: سوپ جو، سوپ سفید"
+            className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-3 py-2 text-sm text-zinc-100"
+          />
+        </div>
+        <div>
+          <label htmlFor="food-barcode-input" className="block text-xs text-zinc-300 mb-1.5">
+            بارکد محصول (اختیاری — ۶۲۶...)
+          </label>
+          <input
+            id="food-barcode-input"
+            type="text"
+            inputMode="numeric"
+            value={formState.barcode}
+            onChange={(e) => setFormState((p) => ({ ...p, barcode: e.target.value }))}
+            placeholder="626..."
+            className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-3 py-2 text-sm text-zinc-100 tabular-nums-fa"
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -267,7 +289,7 @@ export function SingleFoodForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div>
             <label htmlFor="food-kcal-input" className="block text-[11px] text-emerald-400 mb-1">
               کالری *
@@ -280,12 +302,12 @@ export function SingleFoodForm({
               value={formState.kcal}
               onChange={(e) => setFormState((p) => ({ ...p, kcal: e.target.value }))}
               placeholder="۱۸۰"
-              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-3 py-2 text-sm text-zinc-100 tabular-nums-fa"
+              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
             />
           </div>
           <div>
             <label htmlFor="food-protein-input" className="block text-[11px] text-sky-400 mb-1">
-              پروتئین (گرم)
+              پروتئین (گ)
             </label>
             <input
               id="food-protein-input"
@@ -294,12 +316,12 @@ export function SingleFoodForm({
               value={formState.protein}
               onChange={(e) => setFormState((p) => ({ ...p, protein: e.target.value }))}
               placeholder="۸"
-              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-sky-400/70 focus:outline-none px-3 py-2 text-sm text-zinc-100 tabular-nums-fa"
+              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-sky-400/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
             />
           </div>
           <div>
             <label htmlFor="food-carbs-input" className="block text-[11px] text-amber-400 mb-1">
-              کربوهیدرات (گرم)
+              کربوهیدرات (گ)
             </label>
             <input
               id="food-carbs-input"
@@ -308,12 +330,12 @@ export function SingleFoodForm({
               value={formState.carbs}
               onChange={(e) => setFormState((p) => ({ ...p, carbs: e.target.value }))}
               placeholder="۲۰"
-              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-amber-400/70 focus:outline-none px-3 py-2 text-sm text-zinc-100 tabular-nums-fa"
+              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-amber-400/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
             />
           </div>
           <div>
             <label htmlFor="food-fat-input" className="block text-[11px] text-rose-400 mb-1">
-              چربی (گرم)
+              چربی (گ)
             </label>
             <input
               id="food-fat-input"
@@ -322,7 +344,21 @@ export function SingleFoodForm({
               value={formState.fat}
               onChange={(e) => setFormState((p) => ({ ...p, fat: e.target.value }))}
               placeholder="۵"
-              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-rose-400/70 focus:outline-none px-3 py-2 text-sm text-zinc-100 tabular-nums-fa"
+              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-rose-400/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
+            />
+          </div>
+          <div className="col-span-2 sm:col-span-1">
+            <label htmlFor="food-fiber-input" className="block text-[11px] text-lime-400 mb-1">
+              فیبر (گ)
+            </label>
+            <input
+              id="food-fiber-input"
+              type="text"
+              inputMode="decimal"
+              value={formState.fiber}
+              onChange={(e) => setFormState((p) => ({ ...p, fiber: e.target.value }))}
+              placeholder="۲"
+              className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-lime-400/70 focus:outline-none px-2.5 py-2 text-sm text-zinc-100 tabular-nums-fa"
             />
           </div>
         </div>

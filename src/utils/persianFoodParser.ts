@@ -1,8 +1,17 @@
 export {
+  findFoodByBarcode,
+  getInlineFoodAutocomplete,
+  type AutocompleteSuggestion,
+} from './parser/autocomplete'
+export {
   matchFoodInDatabase,
   matchesFoodSearch,
   type FoodMatchResult,
 } from './parser/catalogIndex'
+export {
+  applyCookingModifierToPer100g,
+  extractCookingModifier,
+} from './parser/cookingModifiers'
 export { normalizePersian, toCompactKey, toSpaceKey } from './parser/normalize'
 export {
   calculateFoodMacros,

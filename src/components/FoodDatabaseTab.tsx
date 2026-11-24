@@ -22,6 +22,7 @@ import { SingleFoodForm } from './foodDatabase/SingleFoodForm'
 interface FoodDatabaseTabProps {
   foods: FoodItem[]
   prefillNewFoodName: string | null
+  prefillNewFoodBarcode?: string | null
   onConsumePrefillName: () => void
   onAddFood: (food: Omit<FoodItem, 'id'>) => void
   onUpdateFood: (food: FoodItem) => void
@@ -33,6 +34,7 @@ interface FoodDatabaseTabProps {
 export function FoodDatabaseTab({
   foods,
   prefillNewFoodName,
+  prefillNewFoodBarcode = null,
   onConsumePrefillName,
   onAddFood,
   onUpdateFood,
@@ -43,19 +45,24 @@ export function FoodDatabaseTab({
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [visibleLimit, setVisibleLimit] = useState(60)
-  const [prevPrefill, setPrevPrefill] = useState(prefillNewFoodName)
-  const [formOpen, setFormOpen] = useState(() => Boolean(prefillNewFoodName))
+  const prefillSig = `${prefillNewFoodName ?? ''}::${prefillNewFoodBarcode ?? ''}`
+  const [prevPrefillSig, setPrevPrefillSig] = useState(prefillSig)
+  const [formOpen, setFormOpen] = useState(
+    () => Boolean(prefillNewFoodName) || Boolean(prefillNewFoodBarcode),
+  )
   const [modalMode, setModalMode] = useState<ModalMode>('single')
+  const [editingRecipe, setEditingRecipe] = useState<FoodItem | null>(null)
   const [formState, setFormState] = useState<FoodFormState>(() =>
-    createEmptyForm(prefillNewFoodName ?? ''),
+    createEmptyForm(prefillNewFoodName ?? '', prefillNewFoodBarcode ?? ''),
   )
   const [formError, setFormError] = useState<string | null>(null)
 
-  if (prevPrefill !== prefillNewFoodName) {
-    setPrevPrefill(prefillNewFoodName)
-    if (prefillNewFoodName) {
+  if (prevPrefillSig !== prefillSig) {
+    setPrevPrefillSig(prefillSig)
+    if (prefillNewFoodName || prefillNewFoodBarcode) {
       setModalMode('single')
-      setFormState(createEmptyForm(prefillNewFoodName))
+      setEditingRecipe(null)
+      setFormState(createEmptyForm(prefillNewFoodName ?? '', prefillNewFoodBarcode ?? ''))
       setFormError(null)
       setFormOpen(true)
     }
@@ -72,10 +79,11 @@ export function FoodDatabaseTab({
   const closeForm = useCallback(() => {
     setFormOpen(false)
     setFormError(null)
-    if (prefillNewFoodName) {
+    setEditingRecipe(null)
+    if (prefillNewFoodName || prefillNewFoodBarcode) {
       onConsumePrefillName()
     }
-  }, [onConsumePrefillName, prefillNewFoodName])
+  }, [onConsumePrefillName, prefillNewFoodBarcode, prefillNewFoodName])
 
   useFocusTrap(modalContainerRef, formOpen, closeForm)
 
@@ -90,6 +98,9 @@ export function FoodDatabaseTab({
         food.category !== categoryFilter
       ) {
         return false
+      }
+      if (searchQuery.trim() && food.barcode?.includes(searchQuery.trim())) {
+        return true
       }
       return matchesFoodSearch(food, searchQuery)
     })
@@ -108,13 +119,22 @@ export function FoodDatabaseTab({
 
   const openNewFoodForm = (mode: ModalMode = 'single') => {
     setModalMode(mode)
+    setEditingRecipe(null)
     setFormState(createEmptyForm())
     setFormError(null)
     setFormOpen(true)
   }
 
   const openEditFoodForm = (food: FoodItem) => {
+    if (food.isRecipe && food.recipeIngredients && food.recipeIngredients.length > 0) {
+      setModalMode('recipe')
+      setEditingRecipe(food)
+      setFormError(null)
+      setFormOpen(true)
+      return
+    }
     setModalMode('single')
+    setEditingRecipe(null)
     setFormState(createFormFromFood(food))
     setFormError(null)
     setFormOpen(true)
@@ -122,7 +142,6 @@ export function FoodDatabaseTab({
 
   return (
     <div className="space-y-4 animate-fade-up" data-testid="food-database-tab">
-      {/* Top Toolbar */}
       <div className="card-surface rounded-2xl p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
@@ -134,7 +153,7 @@ export function FoodDatabaseTab({
             </div>
             <p className="text-xs text-zinc-400 mt-0.5 tabular-nums-fa">
               {formatFaNumber(foods.length)} غذا ({formatFaNumber(verifiedCount)} مورد تطبیق‌یافته با
-              منبع مرجع) — ویرایش‌ها جدا از کاتالوگ اصلی ذخیره می‌شوند
+              منبع مرجع) — پشتیبانی از فیبر، بارکد ۶۲۶ و ویرایش دستور پخت
             </p>
           </div>
 
@@ -160,13 +179,11 @@ export function FoodDatabaseTab({
           </div>
         </div>
 
-        {/* Source & Approximation Transparency Notice */}
         <div className="flex items-start gap-2 rounded-xl bg-[#0C0C0D] border border-[#24242A] px-3 py-2 text-[11px] text-zinc-400">
           <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
           <span>{NUTRITION_DATA_SOURCES.shortNotice}</span>
         </div>
 
-        {/* Search Input */}
         <div className="relative">
           <Search className="w-4 h-4 text-zinc-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -174,12 +191,11 @@ export function FoodDatabaseTab({
             id="food-db-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="جستجوی غذا یا واحد (مثلاً: باقالی‌قاتق، ساقه‌طلایی، پیتزا، کفگیر...)"
+            placeholder="جستجوی نام غذا، واحد یا بارکد (مثلاً: باقالی‌قاتق، ساقه‌طلایی، 626...)"
             className="w-full rounded-xl bg-[#0C0C0D] border border-[#2A2A30] focus:border-emerald-500/70 focus:outline-none pr-10 pl-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
           />
         </div>
 
-        {/* Category Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
@@ -236,7 +252,6 @@ export function FoodDatabaseTab({
         </div>
       </div>
 
-      {/* Food List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5" data-testid="food-db-list">
         {displayedFoods.map((food) => (
           <FoodCard
@@ -273,6 +288,7 @@ export function FoodDatabaseTab({
               type="button"
               onClick={() => {
                 setModalMode('single')
+                setEditingRecipe(null)
                 setFormState(createEmptyForm(searchQuery.trim()))
                 setFormError(null)
                 setFormOpen(true)
@@ -297,7 +313,6 @@ export function FoodDatabaseTab({
         </div>
       )}
 
-      {/* Accessible Focus-Trapped Add/Edit Food & Recipe Builder Modal */}
       {formOpen &&
         createPortal(
           <div
@@ -306,7 +321,7 @@ export function FoodDatabaseTab({
             aria-modal="true"
             aria-label={
               modalMode === 'recipe'
-                ? 'ساخت دستور پخت ترکیبی'
+                ? 'ساخت یا ویرایش دستور پخت ترکیبی'
                 : formState.editingId
                   ? 'ویرایش غذا'
                   : 'افزودن غذای جدید'
@@ -320,7 +335,9 @@ export function FoodDatabaseTab({
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-bold text-zinc-100">
                   {modalMode === 'recipe'
-                    ? 'ساخت دستور پخت ترکیبی'
+                    ? editingRecipe
+                      ? 'ویرایش دستور پخت ترکیبی'
+                      : 'ساخت دستور پخت ترکیبی'
                     : formState.editingId
                       ? 'ویرایش اطلاعات غذا'
                       : 'افزودن غذای خانگی جدید'}
@@ -335,7 +352,7 @@ export function FoodDatabaseTab({
                 </button>
               </div>
 
-              {!formState.editingId && (
+              {!formState.editingId && !editingRecipe && (
                 <div className="grid grid-cols-2 rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A] mb-4">
                   <button
                     type="button"
@@ -380,11 +397,14 @@ export function FoodDatabaseTab({
                 />
               ) : (
                 <RecipeBuilderForm
+                  key={editingRecipe?.id ?? 'new-recipe'}
                   foods={foods}
                   foodById={foodById}
+                  editingRecipe={editingRecipe}
                   formError={formError}
                   setFormError={setFormError}
                   onAddFood={onAddFood}
+                  onUpdateFood={onUpdateFood}
                   onClose={closeForm}
                 />
               )}

@@ -1,5 +1,10 @@
 import type { FoodCategory, FoodItem, FoodUnit } from '../../types/nutrition'
-import { DEFAULT_APPROXIMATE_SOURCE, VERIFIED_FOOD_SOURCES } from './verifiedRegistry'
+import {
+  DEFAULT_APPROXIMATE_SOURCE,
+  IRANIAN_FOOD_BARCODES,
+  VERIFIED_FIBER_PER_100G,
+  VERIFIED_FOOD_SOURCES,
+} from './verifiedRegistry'
 
 export const NUTRITION_DATA_SOURCES = {
   shortNotice:
@@ -16,9 +21,18 @@ type UnitTuple = readonly [name: string, grams: number, aliases?: string[]]
 export interface FoodSourceMeta {
   source?: string
   verified?: boolean
+  fiber?: number
+  barcode?: string
 }
 
-/** Compact, strictly typed helper to construct normalized Iranian FoodItem records with source & verification metadata. */
+function estimateDefaultFiber(category: FoodCategory, carbs: number): number {
+  if (carbs <= 0.5) return 0
+  if (category === 'rice_breads') return Math.round(Math.min(4.5, carbs * 0.05) * 10) / 10
+  if (category === 'stews_mains') return Math.round(Math.min(4.0, carbs * 0.14) * 10) / 10
+  return 0
+}
+
+/** Compact, strictly typed helper to construct normalized Iranian FoodItem records with fiber, barcode, source & verification metadata. */
 export function mkFood(
   id: string,
   name: string,
@@ -38,6 +52,8 @@ export function mkFood(
   const registrySource = VERIFIED_FOOD_SOURCES[id]
   const verified = meta?.verified ?? Boolean(registrySource)
   const source = meta?.source ?? registrySource ?? DEFAULT_APPROXIMATE_SOURCE
+  const fiber = meta?.fiber ?? VERIFIED_FIBER_PER_100G[id] ?? estimateDefaultFiber(category, per100g[2])
+  const barcode = meta?.barcode ?? IRANIAN_FOOD_BARCODES[id]
 
   return {
     id,
@@ -49,9 +65,11 @@ export function mkFood(
       protein: per100g[1],
       carbs: per100g[2],
       fat: per100g[3],
+      fiber,
     },
     defaultUnit: mappedUnits[0].name,
     units: mappedUnits,
+    ...(barcode ? { barcode } : {}),
     source,
     verified,
   }

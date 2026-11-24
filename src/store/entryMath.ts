@@ -18,6 +18,7 @@ function deriveFallbackPer100g(entry: LoggedFoodEntry): MacroValues {
     protein: entry.protein * factor,
     carbs: entry.carbs * factor,
     fat: entry.fat * factor,
+    fiber: (entry.fiber ?? 0) * factor,
   }
 }
 
@@ -27,8 +28,8 @@ function isWeightUnitName(unitName: string): boolean {
 
 /**
  * Pure, deterministic entry updater that ALWAYS recomputes `totalGrams`, `kcal`,
- * `protein`, `carbs`, and `fat` from `per100g × grams` (never scaling previously
- * rounded values, eliminating cumulative rounding drift across repeated edits).
+ * `protein`, `carbs`, `fat`, and `fiber` from `per100g × grams` (never scaling previously
+ * rounded values), while preserving any cooking modifier (`entry.per100g` when `modifierLabel` is set).
  */
 export function recomputeUpdatedEntry(
   entry: LoggedFoodEntry,
@@ -83,9 +84,13 @@ export function recomputeUpdatedEntry(
   }
 
   const safeQty = Math.max(0.1, Math.round(nextQty * 100) / 100)
-  const effectivePer100g = matchedFood?.per100g ?? deriveFallbackPer100g(entry)
+  // If user logged with a cooking modifier (e.g. کم‌روغن), preserve its modified per100g snapshot
+  const effectivePer100g =
+    entry.modifierLabel && entry.per100g && entry.per100g.kcal > 0
+      ? entry.per100g
+      : (matchedFood?.per100g ?? deriveFallbackPer100g(entry))
 
-  const syntheticFood: FoodItem = matchedFood ?? {
+  const syntheticFood: FoodItem = {
     id: entry.foodId,
     name: entry.foodName,
     aliases: [],
@@ -102,7 +107,7 @@ export function recomputeUpdatedEntry(
     mealType: nextMealType,
     unit: resolvedUnitName,
     quantity: safeQty,
-    per100g: matchedFood?.per100g ?? entry.per100g ?? effectivePer100g,
+    per100g: effectivePer100g,
     ...calc,
   }
 }

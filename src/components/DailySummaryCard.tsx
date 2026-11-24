@@ -43,7 +43,6 @@ export function DailySummaryCard({
   const waterTarget = goals.waterGoalGlasses || 8
   const waterPct = Math.min(100, Math.round((waterGlasses / waterTarget) * 100))
 
-  // SVG ring geometry
   const size = 164
   const strokeWidth = 12
   const radius = (size - strokeWidth) / 2
@@ -78,6 +77,15 @@ export function DailySummaryCard({
       textColor: 'text-rose-400',
       dotColor: 'bg-rose-400',
     },
+    {
+      id: 'fiber',
+      label: 'فیبر غذایی',
+      consumed: consumed.fiber ?? 0,
+      target: goals.fiberGrams ?? 28,
+      barColor: 'bg-lime-400',
+      textColor: 'text-lime-400',
+      dotColor: 'bg-lime-400',
+    },
   ]
 
   const handleCopy = async () => {
@@ -102,7 +110,7 @@ export function DailySummaryCard({
       <div className="flex items-center justify-between gap-2 mb-4">
         <div>
           <h2 className="text-sm font-semibold text-zinc-100">خلاصه {dayLabel}</h2>
-          <p className="text-[11px] text-zinc-400">برآورد تقریبی انرژی و درشت‌مغذی‌ها</p>
+          <p className="text-[11px] text-zinc-400">برآورد تقریبی انرژی، درشت‌مغذی‌ها و فیبر</p>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -199,13 +207,13 @@ export function DailySummaryCard({
           </div>
         </div>
 
-        {/* Compact Macro Progress Bars */}
-        <div className="w-full space-y-3.5">
+        {/* Compact Macro + Fiber Progress Bars */}
+        <div className="w-full space-y-3">
           {macros.map((m) => {
             const pct = m.target > 0 ? Math.min(100, Math.round((m.consumed / m.target) * 100)) : 0
             return (
               <div key={m.id} data-testid={`macro-bar-${m.id}`}>
-                <div className="flex items-center justify-between text-xs mb-1.5">
+                <div className="flex items-center justify-between text-xs mb-1">
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${m.dotColor}`} />
                     <span className="font-medium text-zinc-200">{m.label}</span>

@@ -1,9 +1,7 @@
 /**
- * Lightweight zero-dependency IndexedDB key-value adapter preparing KaloriShomar
- * for multi-year meal histories beyond localStorage's ~5MB synchronous ceiling.
- *
- * Current stage (Phase 0/1): Asynchronous non-blocking mirror + migration utility
- * alongside synchronous localStorage primary reads (see `docs/STORAGE_ROADMAP.md`).
+ * Zero-dependency IndexedDB key-value & recovery adapter (`kalorishomar_db`).
+ * Provides non-blocking writes AND batch startup hydration (`idbGetMany`) so
+ * multi-year meal histories survive browser localStorage evictions cleanly.
  */
 const IDB_NAME = 'kalorishomar_db'
 const IDB_VERSION = 1
@@ -70,6 +68,38 @@ export async function idbGet<T>(key: string): Promise<T | undefined> {
     } catch {
       db.close()
       resolve(undefined)
+    }
+  })
+}
+
+/** Reads multiple keys in a single readonly IndexedDB transaction for fast startup recovery. */
+export async function idbGetMany(keys: readonly string[]): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {}
+  const db = await openDatabase()
+  if (!db) return out
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      for (const k of keys) {
+        const req = store.get(k)
+        req.onsuccess = () => {
+          if (req.result !== undefined) {
+            out[k] = req.result
+          }
+        }
+      }
+      tx.oncomplete = () => {
+        db.close()
+        resolve(out)
+      }
+      tx.onerror = () => {
+        db.close()
+        resolve(out)
+      }
+    } catch {
+      db.close()
+      resolve(out)
     }
   })
 }

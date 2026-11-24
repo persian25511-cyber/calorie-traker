@@ -13,19 +13,30 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
-  MEAL_TYPE_LABELS,
+  getMealTypeLabels,
+  MEAL_BUDGET_RATIOS,
   MEAL_TYPE_ORDER,
   type FoodItem,
   type LoggedFoodEntry,
   type MealType,
+  type UserGoals,
 } from '../types/nutrition'
-import { formatFaNumber, formatQuantityFa, formatTimeFa } from '../utils/persianFormat'
+import {
+  dateFromKey,
+  formatFaNumber,
+  formatJalaliDate,
+  formatQuantityFa,
+  formatTimeFa,
+  shiftDateKey,
+} from '../utils/persianFormat'
 
 interface TodayMealsListProps {
   foods: FoodItem[]
   dayEntries: LoggedFoodEntry[]
-  previousDayEntries: LoggedFoodEntry[]
-  previousDayLabel: string
+  allEntries: LoggedFoodEntry[]
+  selectedDateKey: string
+  todayKey: string
+  goals: UserGoals
   onDeleteEntry: (entryId: string) => void
   onUpdateEntry: (
     entryId: string,
@@ -45,8 +56,10 @@ const MEAL_ICONS: Record<MealType, typeof Sun> = {
 export function TodayMealsList({
   foods,
   dayEntries,
-  previousDayEntries,
-  previousDayLabel,
+  allEntries,
+  selectedDateKey,
+  todayKey,
+  goals,
   onDeleteEntry,
   onUpdateEntry,
   onRepeatEntries,
@@ -55,8 +68,35 @@ export function TodayMealsList({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [savingTemplateFor, setSavingTemplateFor] = useState<MealType | null>(null)
   const [templateName, setTemplateName] = useState('')
+  const [customSourceDay, setCustomSourceDay] = useState<string | null>(null)
+
+  const scheduleMode = goals.scheduleMode ?? 'standard'
+  const mealLabels = getMealTypeLabels(scheduleMode)
+  const budgetRatios = MEAL_BUDGET_RATIOS[scheduleMode]
 
   const foodById = useMemo(() => new Map(foods.map((f) => [f.id, f])), [foods])
+
+  // Recent logged dates (excluding currently selected date) for arbitrary-day meal copying
+  const availableCopyDates = useMemo(() => {
+    const distinct = Array.from(
+      new Set(allEntries.map((e) => e.dateKey).filter((dk) => dk !== selectedDateKey)),
+    ).sort((a, b) => b.localeCompare(a))
+    return distinct.slice(0, 8)
+  }, [allEntries, selectedDateKey])
+
+  const defaultCopySourceDay = shiftDateKey(selectedDateKey, -1)
+  const activeCopySourceDay =
+    customSourceDay && availableCopyDates.includes(customSourceDay)
+      ? customSourceDay
+      : availableCopyDates.includes(defaultCopySourceDay)
+        ? defaultCopySourceDay
+        : (availableCopyDates[0] ?? defaultCopySourceDay)
+
+  const formatCopyDayLabel = (dk: string) => {
+    if (dk === shiftDateKey(todayKey, -1)) return 'دیروز'
+    if (dk === todayKey) return 'امروز'
+    return formatJalaliDate(dateFromKey(dk), 'short')
+  }
 
   const groupedToday = useMemo(() => {
     const map: Record<MealType, LoggedFoodEntry[]> = {
@@ -71,22 +111,24 @@ export function TodayMealsList({
     return map
   }, [dayEntries])
 
-  const repeatablePreviousMeals = useMemo(() => {
+  const repeatableMealsFromSource = useMemo(() => {
     const map: Record<MealType, LoggedFoodEntry[]> = {
       breakfast: [],
       lunch: [],
       dinner: [],
       snack: [],
     }
-    for (const entry of previousDayEntries) {
-      map[entry.mealType]?.push(entry)
+    for (const entry of allEntries) {
+      if (entry.dateKey === activeCopySourceDay) {
+        map[entry.mealType]?.push(entry)
+      }
     }
     return MEAL_TYPE_ORDER.map((type) => ({
       mealType: type,
       items: map[type],
       totalKcal: map[type].reduce((sum, e) => sum + e.kcal, 0),
     })).filter((group) => group.items.length > 0)
-  }, [previousDayEntries])
+  }, [activeCopySourceDay, allEntries])
 
   const hasAnyToday = dayEntries.length > 0
 
@@ -100,17 +142,33 @@ export function TodayMealsList({
 
   return (
     <section aria-label="وعده‌های ثبت‌شده" className="space-y-4">
-      {/* Quick Repeat from Yesterday / Previous Day */}
-      {repeatablePreviousMeals.length > 0 && (
+      {/* Copy Meal from Yesterday or Any Recent Logged Day */}
+      {repeatableMealsFromSource.length > 0 && (
         <div className="card-surface rounded-2xl p-4">
-          <div className="flex items-center justify-between gap-2 mb-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
               <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-              <span>تکرار سریع از {previousDayLabel}</span>
+              <span>کپی سریع وعده از {formatCopyDayLabel(activeCopySourceDay)}</span>
             </div>
+
+            {availableCopyDates.length > 1 && (
+              <select
+                aria-label="انتخاب روز مبدا برای کپی وعده"
+                data-testid="copy-source-date-select"
+                value={activeCopySourceDay}
+                onChange={(e) => setCustomSourceDay(e.target.value)}
+                className="rounded-lg bg-[#1E1E22] border border-[#2E2E36] text-[11px] text-zinc-300 px-2 py-1 focus:outline-none focus:border-emerald-500/70"
+              >
+                {availableCopyDates.map((dk) => (
+                  <option key={dk} value={dk}>
+                    {formatCopyDayLabel(dk)} ({dk})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
-            {repeatablePreviousMeals.map((group) => (
+            {repeatableMealsFromSource.map((group) => (
               <button
                 key={group.mealType}
                 type="button"
@@ -119,7 +177,7 @@ export function TodayMealsList({
               >
                 <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="font-medium text-zinc-100">
-                  تکرار {MEAL_TYPE_LABELS[group.mealType]}
+                  کپی {mealLabels[group.mealType]}
                 </span>
                 <span className="text-zinc-400 tabular-nums-fa">
                   ({formatFaNumber(group.totalKcal)} کالری)
@@ -138,8 +196,8 @@ export function TodayMealsList({
           </div>
           <h3 className="text-sm font-semibold text-zinc-200">هنوز وعده‌ای ثبت نشده است</h3>
           <p className="text-xs text-zinc-400 mt-1.5 max-w-xs mx-auto leading-relaxed">
-            در کادر بالا غذای خود را به فارسی تایپ کنید یا یکی از پیشنهادهای سریع را لمس کنید تا در
-            کمتر از ۱۰ ثانیه ثبت شود.
+            در کادر بالا غذای خود را به فارسی تایپ کنید، صوتی بگویید یا یکی از پیشنهادهای سریع را
+            لمس کنید.
           </p>
         </div>
       ) : (
@@ -152,6 +210,7 @@ export function TodayMealsList({
             const subtotalKcal = items.reduce((sum, item) => sum + item.kcal, 0)
             const subtotalProtein =
               Math.round(items.reduce((sum, item) => sum + item.protein, 0) * 10) / 10
+            const suggestedMealBudget = Math.round(goals.dailyKcal * budgetRatios[mealType])
             const isNamingTemplate = savingTemplateFor === mealType
 
             return (
@@ -160,7 +219,6 @@ export function TodayMealsList({
                 data-testid={`meal-group-${mealType}`}
                 className="card-surface rounded-2xl overflow-hidden animate-fade-up"
               >
-                {/* Meal Group Header */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-[#222227]">
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-lg bg-[#1E1E22] flex items-center justify-center text-zinc-300">
@@ -168,11 +226,12 @@ export function TodayMealsList({
                     </div>
                     <div>
                       <h3 className="text-sm font-semibold text-zinc-100 leading-tight">
-                        {MEAL_TYPE_LABELS[mealType]}
+                        {mealLabels[mealType]}
                       </h3>
                       <span className="text-[11px] text-zinc-400 tabular-nums-fa">
                         {formatFaNumber(items.length)} مورد · پروتئین{' '}
-                        {formatFaNumber(subtotalProtein, 1)} گرم
+                        {formatFaNumber(subtotalProtein, 1)}گ · سهم پیشنهادی ~
+                        {formatFaNumber(suggestedMealBudget)} ک
                       </span>
                     </div>
                   </div>
@@ -187,7 +246,7 @@ export function TodayMealsList({
                       onClick={() => {
                         setSavingTemplateFor((curr) => (curr === mealType ? null : mealType))
                         setTemplateName(
-                          `${MEAL_TYPE_LABELS[mealType]} ${items[0]?.foodName ?? ''}`.trim(),
+                          `${mealLabels[mealType]} ${items[0]?.foodName ?? ''}`.trim(),
                         )
                       }}
                       title="ذخیره به عنوان وعده منتخب"
@@ -199,16 +258,15 @@ export function TodayMealsList({
                     <button
                       type="button"
                       onClick={() => onRepeatEntries(items, mealType)}
-                      title={`تکرار ${MEAL_TYPE_LABELS[mealType]}`}
+                      title={`تکرار ${mealLabels[mealType]}`}
                       className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#28282F] border border-[#2B2B32] px-2 py-1 text-[11px] text-zinc-300 hover:text-emerald-300 transition-colors"
                     >
-                      <RotateCcw className="w-3 h-3" />
+                      <RotateCcw className="w-3.5 h-3.5" />
                       <span>تکرار</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Inline Save Template Name Bar */}
                 {isNamingTemplate && (
                   <form
                     onSubmit={(e) => {
@@ -238,7 +296,6 @@ export function TodayMealsList({
                   </form>
                 )}
 
-                {/* Meal Items */}
                 <ul className="divide-y divide-[#1F1F24]">
                   {items.map((entry) => {
                     const isEditing = editingEntryId === entry.id
@@ -257,13 +314,18 @@ export function TodayMealsList({
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-zinc-100 truncate">
                                 {entry.foodName}
                               </span>
                               <span className="text-[11px] text-zinc-400 shrink-0 tabular-nums-fa">
                                 {formatQuantityFa(entry.quantity)} {entry.unit}
                               </span>
+                              {entry.modifierLabel && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/15 text-sky-300">
+                                  {entry.modifierLabel}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-zinc-400 mt-0.5 tabular-nums-fa">
                               <span>{formatFaNumber(entry.totalGrams)} گرم</span>
@@ -276,6 +338,11 @@ export function TodayMealsList({
                               <span className="text-rose-400/90">
                                 چ {formatFaNumber(entry.fat, 1)}گ
                               </span>
+                              {(entry.fiber ?? 0) > 0 && (
+                                <span className="text-lime-400/90">
+                                  ف {formatFaNumber(entry.fiber ?? 0, 1)}گ
+                                </span>
+                              )}
                               <span className="text-zinc-500">{formatTimeFa(entry.timestamp)}</span>
                             </div>
                           </div>
@@ -321,7 +388,6 @@ export function TodayMealsList({
                           </div>
                         </div>
 
-                        {/* Inline Quick Edit Drawer (Quantity + Unit + Meal Type) */}
                         {isEditing && (
                           <div
                             data-testid="inline-entry-editor"
@@ -380,7 +446,7 @@ export function TodayMealsList({
                                       : 'bg-[#222228] text-zinc-400 hover:text-zinc-200'
                                   }`}
                                 >
-                                  {MEAL_TYPE_LABELS[mt]}
+                                  {mealLabels[mt]}
                                 </button>
                               ))}
                             </div>

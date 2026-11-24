@@ -4,6 +4,19 @@ All notable changes to **KaloriShomar (کالری‌شمار روزمره)** are
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-24
+
+### Added
+- **Zero-Dependency Native SVG Charts & Bundle Budget Gate (#1 & #9):** Replaced `recharts` (removing 39 npm packages) with custom RTL-native SVG `CalorieBarChart` and `WeightLineChart` (`src/components/charts/NativeCharts.tsx`), and enforced strict gzipped bundle budgets via `scripts/check-bundle-budget.mjs` in GitHub Actions CI.
+- **Bidirectional `IndexedDB` Startup Recovery (#2):** Added `idbGetMany` batch transaction reader (`src/storage/idbAdapter.ts`) and automatic startup recovery + backfill in `useNutritionStore` if `localStorage` keys are evicted.
+- **Live Inline Autocomplete in QuickEntryBar (#3):** Added real-time trailing-segment Persian food suggestions (`getInlineFoodAutocomplete`) with `Tab` key and 1-tap completion while preserving typed quantities, units, and earlier meal segments.
+- **Iranian Cooking Preparation Modifiers in Parser (#4):** Added `extractCookingModifier` & `applyCookingModifierToPer100g` (`کم‌روغن`, `بدون روغن`, `رژیمی`, `ایرفرایر`, `بخارپز`, `پرچرب`, `با کره`) with transparent fat/kcal adjustment and UI badges while preserving 100% compatibility on built-in catalog items.
+- **Persian Voice Input (`fa-IR`) & Iranian `626` Barcode Scanner (#5):** Added `VoiceAndBarcodeControls` supporting Web Speech API dictation, `BarcodeDetector` camera scanning, manual `626` EAN-13 lookup across popular Iranian packaged items, and 1-click custom barcode product creation.
+- **Editable Multi-Ingredient Recipes with Cooking Weight Yield (#6):** Persisted `recipeIngredients` and `cookingYieldPct` (`ضریب پخت ٪`) on custom recipes so users can re-open and edit ingredients and water evaporation/absorption yield at any time.
+- **Visual Jalali (Shamsi) Monthly Calendar & Arbitrary Past-Day Meal Copy (#7):** Added accessible `JalaliCalendarPopover` (`src/utils/jalaliCalendar.ts`) with emerald logged-day dots and expanded meal copying to select from any past logged day.
+- **Dietary Fiber Tracking & Ramadan / Fasting Schedule Mode (#8):** Added `fiber` across all 322 foods (with curated values for breads, legumes, stews, nuts, fruits, and vegetables), daily fiber goal & progress bar, per-meal calorie budget hints, and `سحری / افطاری / شام` schedule mode.
+- **Password-Encrypted Backups (`AES-256-GCM`) & Opt-in Local Reminders (#10):** Added Web Crypto `PBKDF2-SHA256` (100k iterations) + `AES-256-GCM` backup encryption/decryption (`src/utils/cryptoBackup.ts`) and opt-in local evening meal & daytime hydration reminders (`src/utils/localReminders.ts`).
+
 ## [1.1.0] - 2026-11-24
 
 ### Added

@@ -98,13 +98,6 @@ export default defineConfig({
           ) {
             return 'vendor-react'
           }
-          if (
-            id.includes('node_modules/recharts') ||
-            id.includes('node_modules/d3-') ||
-            id.includes('node_modules/victory-vendor')
-          ) {
-            return 'vendor-charts'
-          }
           if (id.includes('/src/data/foods/') || id.includes('/src/data/iranianFoods')) {
             return 'food-catalog'
           }

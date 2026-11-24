@@ -10,6 +10,7 @@ import {
   type MealTemplate,
   type MealTemplateItem,
   type MealType,
+  type RecipeIngredientRecord,
   type UserGoals,
   type WeightEntry,
 } from '../types/nutrition'
@@ -31,13 +32,43 @@ export function isFiniteNonNegative(val: unknown): val is number {
 function sanitizeOptionalPer100g(raw: unknown): MacroValues | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const m = raw as Partial<MacroValues>
-  if (!isFiniteNonNegative(m.kcal) || m.kcal <= 0) return undefined
+  if (!isFiniteNonNegative(m.kcal) || kcalIsZero(m.kcal)) return undefined
   return {
     kcal: m.kcal,
     protein: isFiniteNonNegative(m.protein) ? m.protein : 0,
     carbs: isFiniteNonNegative(m.carbs) ? m.carbs : 0,
     fat: isFiniteNonNegative(m.fat) ? m.fat : 0,
+    ...(isFiniteNonNegative(m.fiber) ? { fiber: m.fiber } : {}),
   }
+}
+
+function kcalIsZero(kcal: number): boolean {
+  return kcal <= 0
+}
+
+function sanitizeRecipeIngredients(raw: unknown): RecipeIngredientRecord[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: RecipeIngredientRecord[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Partial<RecipeIngredientRecord>
+    if (
+      typeof r.foodId === 'string' &&
+      r.foodId.trim() &&
+      typeof r.unit === 'string' &&
+      r.unit.trim() &&
+      typeof r.quantity === 'number' &&
+      Number.isFinite(r.quantity) &&
+      r.quantity > 0
+    ) {
+      out.push({
+        foodId: r.foodId.trim(),
+        quantity: r.quantity,
+        unit: r.unit.trim(),
+      })
+    }
+  }
+  return out.length > 0 ? out : undefined
 }
 
 /** Sanitizes an untrusted FoodItem object (from JSON backup or storage) so invalid fields never crash UI or parser. */
@@ -48,7 +79,7 @@ export function sanitizeImportedFood(raw: unknown): FoodItem | null {
   if (typeof f.name !== 'string' || !f.name.trim()) return null
   if (!f.per100g || typeof f.per100g !== 'object') return null
 
-  const { kcal, protein, carbs, fat } = f.per100g
+  const { kcal, protein, carbs, fat, fiber } = f.per100g
   if (!isFiniteNonNegative(kcal) || kcal <= 0) return null
 
   if (!Array.isArray(f.units) || f.units.length === 0) return null
@@ -93,6 +124,19 @@ export function sanitizeImportedFood(raw: unknown): FoodItem | null {
       ? f.defaultUnit
       : cleanUnits[0].name
 
+  const cleanBarcode =
+    typeof f.barcode === 'string' && /^\d{8,14}$/.test(f.barcode.trim())
+      ? f.barcode.trim()
+      : undefined
+  const cleanRecipeIngredients = sanitizeRecipeIngredients(f.recipeIngredients)
+  const cleanYield =
+    typeof f.cookingYieldPct === 'number' &&
+    Number.isFinite(f.cookingYieldPct) &&
+    f.cookingYieldPct >= 25 &&
+    f.cookingYieldPct <= 400
+      ? Math.round(f.cookingYieldPct)
+      : undefined
+
   return {
     id: f.id.trim(),
     name: f.name.trim(),
@@ -103,13 +147,17 @@ export function sanitizeImportedFood(raw: unknown): FoodItem | null {
       protein: isFiniteNonNegative(protein) ? protein : 0,
       carbs: isFiniteNonNegative(carbs) ? carbs : 0,
       fat: isFiniteNonNegative(fat) ? fat : 0,
+      ...(isFiniteNonNegative(fiber) ? { fiber } : {}),
     },
     defaultUnit,
     units: cleanUnits,
+    ...(cleanBarcode ? { barcode: cleanBarcode } : {}),
     ...(typeof f.source === 'string' && f.source.trim() ? { source: f.source.trim() } : {}),
     ...(typeof f.verified === 'boolean' ? { verified: f.verified } : {}),
     ...(f.isCustom ? { isCustom: true } : {}),
     ...(f.isRecipe ? { isRecipe: true } : {}),
+    ...(cleanRecipeIngredients ? { recipeIngredients: cleanRecipeIngredients } : {}),
+    ...(cleanYield !== undefined ? { cookingYieldPct: cleanYield } : {}),
   }
 }
 
@@ -191,6 +239,10 @@ export function sanitizeImportedEntry(raw: unknown): LoggedFoodEntry | null {
     protein: isFiniteNonNegative(e.protein) ? e.protein : 0,
     carbs: isFiniteNonNegative(e.carbs) ? e.carbs : 0,
     fat: isFiniteNonNegative(e.fat) ? e.fat : 0,
+    ...(isFiniteNonNegative(e.fiber) ? { fiber: e.fiber } : {}),
+    ...(typeof e.modifierLabel === 'string' && e.modifierLabel.trim()
+      ? { modifierLabel: e.modifierLabel.trim() }
+      : {}),
     ...(per100g ? { per100g } : {}),
     ...(typeof e.sourceText === 'string' ? { sourceText: e.sourceText } : {}),
   }
@@ -210,7 +262,6 @@ export function sanitizeEntryList(raw: unknown): LoggedFoodEntry[] {
   return out
 }
 
-/** Sanitizes water intake map (YYYY-MM-DD -> clamped integer 0..30). */
 export function sanitizeWaterMap(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
   const clean: Record<string, number> = {}
@@ -225,7 +276,6 @@ export function sanitizeWaterMap(raw: unknown): Record<string, number> {
   return clean
 }
 
-/** Sanitizes a single WeightEntry record (25..300 kg, valid YYYY-MM-DD). */
 export function sanitizeWeightEntry(raw: unknown): WeightEntry | null {
   if (!raw || typeof raw !== 'object') return null
   const w = raw as Partial<WeightEntry>
@@ -248,7 +298,6 @@ export function sanitizeWeightEntry(raw: unknown): WeightEntry | null {
   }
 }
 
-/** Sanitizes, deduplicates by dateKey (keeping latest updatedAt), and sorts WeightEntry[] ascending. */
 export function sanitizeWeightList(raw: unknown): WeightEntry[] {
   if (!Array.isArray(raw)) return []
   const byDate = new Map<string, WeightEntry>()
@@ -287,6 +336,7 @@ export function sanitizeTemplateItem(raw: unknown): MealTemplateItem | null {
     protein: isFiniteNonNegative(it.protein) ? it.protein : 0,
     carbs: isFiniteNonNegative(it.carbs) ? it.carbs : 0,
     fat: isFiniteNonNegative(it.fat) ? it.fat : 0,
+    ...(isFiniteNonNegative(it.fiber) ? { fiber: it.fiber } : {}),
   }
 }
 
@@ -354,11 +404,16 @@ export function normalizeGoals(raw: Partial<UserGoals> | null | undefined): User
       typeof raw.fatGrams === 'number' && Number.isFinite(raw.fatGrams) && raw.fatGrams >= 15
         ? Math.min(350, Math.round(raw.fatGrams))
         : DEFAULT_USER_GOALS.fatGrams,
+    fiberGrams:
+      typeof raw.fiberGrams === 'number' && Number.isFinite(raw.fiberGrams) && raw.fiberGrams >= 10
+        ? Math.min(100, Math.round(raw.fiberGrams))
+        : (DEFAULT_USER_GOALS.fiberGrams ?? 28),
     waterGoalGlasses:
       typeof raw.waterGoalGlasses === 'number' &&
       Number.isFinite(raw.waterGoalGlasses) &&
       raw.waterGoalGlasses >= 4
         ? Math.min(25, Math.round(raw.waterGoalGlasses))
         : DEFAULT_USER_GOALS.waterGoalGlasses,
+    scheduleMode: raw.scheduleMode === 'ramadan' ? 'ramadan' : 'standard',
   }
 }

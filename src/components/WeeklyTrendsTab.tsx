@@ -12,22 +12,9 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { APP_CONFIG } from '../config/env'
 import {
-  MEAL_TYPE_LABELS,
+  getMealTypeLabels,
   type LoggedFoodEntry,
   type UserGoals,
   type WeightEntry,
@@ -44,6 +31,11 @@ import {
   toAsciiDigits,
 } from '../utils/persianFormat'
 import { exportWeeklySummaryImage } from '../utils/reportImageExport'
+import {
+  CalorieBarChart,
+  WeightLineChart,
+  type CalorieBarPoint,
+} from './charts/NativeCharts'
 
 interface WeeklyTrendsTabProps {
   entries: LoggedFoodEntry[]
@@ -54,82 +46,6 @@ interface WeeklyTrendsTabProps {
   onSelectDate: (dateKey: string) => void
   onUpsertWeight: (dateKey: string, weightKg: number) => void
   onDeleteWeight: (dateKey: string) => void
-}
-
-interface DayChartPoint {
-  dateKey: string
-  axisLabel: string
-  jalaliShort: string
-  jalaliFull: string
-  isToday: boolean
-  kcal: number
-  protein: number
-  carbs: number
-  fat: number
-}
-
-interface CustomTooltipProps {
-  active?: boolean
-  payload?: Array<{ payload: DayChartPoint }>
-  goalKcal: number
-}
-
-function CalorieChartTooltip({ active, payload, goalKcal }: CustomTooltipProps) {
-  if (!active || !payload || payload.length === 0) return null
-  const point = payload[0].payload
-  const diff = point.kcal - goalKcal
-
-  return (
-    <div
-      dir="rtl"
-      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-elevated)] px-3.5 py-2.5 shadow-xl text-xs"
-    >
-      <div className="font-semibold text-zinc-100 mb-1">
-        {point.isToday ? `امروز (${point.jalaliShort})` : point.jalaliFull}
-      </div>
-      <div className="flex items-center justify-between gap-4 tabular-nums-fa">
-        <span className="text-zinc-400">کالری تقریبی:</span>
-        <span
-          className={`font-bold ${point.kcal > goalKcal ? 'text-amber-300' : 'text-emerald-400'}`}
-        >
-          {formatFaNumber(point.kcal)} کالری
-        </span>
-      </div>
-      {point.kcal > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-[var(--border-subtle)] flex items-center gap-3 text-[11px] tabular-nums-fa">
-          <span className="text-sky-400">پ: {formatFaNumber(point.protein, 1)}گ</span>
-          <span className="text-amber-400">ک: {formatFaNumber(point.carbs, 1)}گ</span>
-          <span className="text-rose-400">چ: {formatFaNumber(point.fat, 1)}گ</span>
-        </div>
-      )}
-      <div className="mt-1 text-[10px] text-zinc-400 tabular-nums-fa">
-        {point.kcal === 0
-          ? 'بدون ثبت در این روز'
-          : diff > 0
-            ? `${formatFaNumber(diff)} کالری بالاتر از محدوده هدف`
-            : `${formatFaNumber(Math.abs(diff))} کالری کمتر از سقف هدف`}
-      </div>
-    </div>
-  )
-}
-
-interface WeightTooltipProps {
-  active?: boolean
-  payload?: Array<{ payload: { jalaliFull: string; weightKg: number } }>
-}
-
-function WeightChartTooltip({ active, payload }: WeightTooltipProps) {
-  if (!active || !payload || payload.length === 0) return null
-  const pt = payload[0].payload
-  return (
-    <div
-      dir="rtl"
-      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-elevated)] px-3 py-2 shadow-xl text-xs tabular-nums-fa"
-    >
-      <div className="text-zinc-400 text-[11px]">{pt.jalaliFull}</div>
-      <div className="text-sky-400 font-bold mt-0.5">{formatFaNumber(pt.weightKg, 1)} کیلوگرم</div>
-    </div>
-  )
 }
 
 export function WeeklyTrendsTab({
@@ -147,6 +63,7 @@ export function WeeklyTrendsTab({
   const [historyQuery, setHistoryQuery] = useState('')
   const [weeklyCopied, setWeeklyCopied] = useState(false)
 
+  const mealLabels = getMealTypeLabels(goals.scheduleMode)
   const days = useMemo(() => getLastNDays(rangeDays, dateFromKey(todayKey)), [rangeDays, todayKey])
   const last7Days = useMemo(() => getLastNDays(7, dateFromKey(todayKey)), [todayKey])
 
@@ -163,7 +80,7 @@ export function WeeklyTrendsTab({
     return map
   }, [entries])
 
-  const chartData = useMemo<DayChartPoint[]>(() => {
+  const chartData = useMemo<CalorieBarPoint[]>(() => {
     return days.map((slot) => {
       const totals = totalsByDay.get(slot.dateKey) ?? { kcal: 0, protein: 0, carbs: 0, fat: 0 }
       return {
@@ -295,13 +212,12 @@ export function WeeklyTrendsTab({
     )
   }
 
-  // Phase 3: Instant History Search across all logged meals
   const historyResults = useMemo(() => {
     const q = toSpaceKey(historyQuery)
     if (!q) return []
     return entries
       .filter((e) => {
-        const mealLabel = MEAL_TYPE_LABELS[e.mealType]
+        const mealLabel = mealLabels[e.mealType]
         const jalali = formatJalaliDate(dateFromKey(e.dateKey), 'medium')
         const haystack = toSpaceKey(
           `${e.foodName} ${e.unit} ${mealLabel} ${jalali} ${e.sourceText ?? ''}`,
@@ -309,7 +225,7 @@ export function WeeklyTrendsTab({
         return haystack.includes(q)
       })
       .slice(0, 30)
-  }, [entries, historyQuery])
+  }, [entries, historyQuery, mealLabels])
 
   const weightChartPoints = useMemo(() => {
     return weights.slice(-30).map((w) => {
@@ -343,7 +259,7 @@ export function WeeklyTrendsTab({
 
   return (
     <div className="space-y-4 animate-fade-up" data-testid="weekly-trends-tab">
-      {/* KPI Summary Strip (Supportive, non-pressuring copy) */}
+      {/* KPI Summary Strip */}
       <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
         <div className="card-surface rounded-2xl p-3.5 sm:p-4">
           <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-zinc-400">
@@ -391,7 +307,7 @@ export function WeeklyTrendsTab({
         </div>
       </div>
 
-      {/* 7-Day / 30-Day Calorie Bar Chart + Shareable Weekly Report */}
+      {/* Native Zero-Dependency SVG Calorie Bar Chart */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5"
         aria-label="نمودار کالری هفتگی و ماهانه"
@@ -406,7 +322,7 @@ export function WeeklyTrendsTab({
                 روند کالری {rangeDays === 7 ? '۷ روز اخیر' : '۳۰ روز اخیر (ماهانه)'}
               </h2>
               <p className="text-[11px] text-zinc-400">
-                برای مشاهده یا ویرایش وعده‌ها روی تاریخ هر روز بزنید
+                برای مشاهده یا ویرایش وعده‌ها روی ستون یا تاریخ هر روز بزنید
               </p>
             </div>
           </div>
@@ -470,62 +386,13 @@ export function WeeklyTrendsTab({
           </div>
         </div>
 
-        <div dir="ltr" className="w-full h-64 sm:h-72" data-testid="weekly-bar-chart">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={chartData}
-              margin={{ top: 14, right: 8, left: -8, bottom: 4 }}
-              barCategoryGap={rangeDays === 7 ? '24%' : '14%'}
-            >
-              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="axisLabel"
-                interval={rangeDays === 7 ? 0 : 4}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#A1A1AA', fontSize: 11, fontFamily: 'Vazirmatn Variable' }}
-                dy={6}
-              />
-              <YAxis
-                domain={[0, stats.maxAxisKcal]}
-                axisLine={false}
-                tickLine={false}
-                width={46}
-                tickFormatter={(val: number) => formatFaNumber(val)}
-                tick={{ fill: '#A1A1AA', fontSize: 11, fontFamily: 'Vazirmatn Variable' }}
-              />
-              <Tooltip
-                cursor={{ fill: 'rgba(16, 185, 129, 0.06)' }}
-                content={<CalorieChartTooltip goalKcal={goals.dailyKcal} />}
-              />
-              <ReferenceLine
-                y={goals.dailyKcal}
-                stroke="#F59E0B"
-                strokeDasharray="5 5"
-                strokeWidth={1.5}
-              />
-              <Bar
-                dataKey="kcal"
-                radius={[6, 6, 2, 2]}
-                maxBarSize={rangeDays === 7 ? 38 : 14}
-                animationDuration={300}
-              >
-                {chartData.map((entry) => {
-                  const isOver = entry.kcal > goals.dailyKcal
-                  let fill = 'var(--chart-empty-bar)'
-                  if (entry.kcal > 0) {
-                    if (isOver) {
-                      fill = entry.isToday ? '#FBBF24' : '#D97706'
-                    } else {
-                      fill = entry.isToday ? '#10B981' : '#059669'
-                    }
-                  }
-                  return <Cell key={entry.dateKey} fill={fill} />
-                })}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <CalorieBarChart
+          data={chartData}
+          goalKcal={goals.dailyKcal}
+          maxAxisKcal={stats.maxAxisKcal}
+          rangeDays={rangeDays}
+          onSelectDate={onSelectDate}
+        />
 
         {rangeDays === 7 ? (
           <div
@@ -573,7 +440,7 @@ export function WeeklyTrendsTab({
         )}
       </section>
 
-      {/* Phase 3: Search Across Meal History */}
+      {/* Search Across Meal History */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5 space-y-3"
         aria-label="جستجو در تاریخچه وعده‌ها"
@@ -582,7 +449,7 @@ export function WeeklyTrendsTab({
         <div>
           <h2 className="text-sm font-semibold text-zinc-100">جستجو در تاریخچه وعده‌ها</h2>
           <p className="text-[11px] text-zinc-400 mt-0.5">
-            جستجو بر اساس نام غذا، نوع وعده (صبحانه/ناهار/شام) یا تاریخ شمسی
+            جستجو بر اساس نام غذا، نوع وعده یا تاریخ شمسی
           </p>
         </div>
 
@@ -593,7 +460,7 @@ export function WeeklyTrendsTab({
             id="history-search-input"
             value={historyQuery}
             onChange={(e) => setHistoryQuery(e.target.value)}
-            placeholder="مثلاً: قورمه‌سبزی، سنگک، ناهار، آبان..."
+            placeholder="مثلاً: قورمه‌سبزی، سنگک، ناهار، سحری، آبان..."
             className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none pr-10 pl-3.5 py-2.5 text-xs sm:text-sm text-zinc-100 placeholder:text-zinc-500"
           />
         </div>
@@ -623,7 +490,7 @@ export function WeeklyTrendsTab({
                         <span className="font-semibold text-zinc-100">{item.foodName}</span>
                         <span className="text-zinc-400 mr-2 tabular-nums-fa">
                           {formatQuantityFa(item.quantity)} {item.unit} ·{' '}
-                          {MEAL_TYPE_LABELS[item.mealType]}
+                          {mealLabels[item.mealType]}
                         </span>
                       </div>
                       <div className="shrink-0 flex items-center gap-2 tabular-nums-fa text-[11px]">
@@ -643,7 +510,7 @@ export function WeeklyTrendsTab({
         )}
       </section>
 
-      {/* Weight Tracking & Progress Chart (Neutral, non-pressuring copy) */}
+      {/* Weight Tracking & Native SVG Progress Chart */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5 space-y-4"
         aria-label="ثبت وزن و نمودار روند"
@@ -692,39 +559,7 @@ export function WeeklyTrendsTab({
           </form>
         </div>
 
-        {weightChartPoints.length >= 2 && (
-          <div dir="ltr" className="w-full h-44" data-testid="weight-progress-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={weightChartPoints} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
-                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="jalaliShort"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#A1A1AA', fontSize: 11, fontFamily: 'Vazirmatn Variable' }}
-                />
-                <YAxis
-                  domain={['dataMin - 1', 'dataMax + 1']}
-                  axisLine={false}
-                  tickLine={false}
-                  width={44}
-                  tickFormatter={(v: number) => formatFaNumber(v, 1)}
-                  tick={{ fill: '#A1A1AA', fontSize: 11, fontFamily: 'Vazirmatn Variable' }}
-                />
-                <Tooltip content={<WeightChartTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="weightKg"
-                  stroke="#38BDF8"
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: '#38BDF8', strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: '#7DD3FC' }}
-                  animationDuration={300}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        {weightChartPoints.length >= 2 && <WeightLineChart points={weightChartPoints} />}
 
         {weightChartPoints.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">

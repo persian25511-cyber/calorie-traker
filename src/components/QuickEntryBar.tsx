@@ -9,16 +9,18 @@ import {
   Plus,
   Sparkles,
   UtensilsCrossed,
+  Wand2,
   X,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { buildMissingFoodIssueUrl } from '../config/feedback'
 import { QUICK_MEAL_SUGGESTIONS } from '../data/iranianFoods'
 import {
-  MEAL_TYPE_LABELS,
+  getMealTypeLabels,
   MEAL_TYPE_ORDER,
   type FoodItem,
   type LoggedFoodEntry,
+  type MealScheduleMode,
   type MealTemplate,
   type MealType,
   type ParsedFoodItem,
@@ -31,16 +33,19 @@ import {
 import {
   calculateFoodMacros,
   extractCleanFoodName,
+  getInlineFoodAutocomplete,
   parsePersianFoodInput,
   resolveFoodUnit,
 } from '../utils/persianFoodParser'
 import { formatFaNumber, formatQuantityFa, getLocalDateKey } from '../utils/persianFormat'
+import { VoiceAndBarcodeControls } from './VoiceAndBarcodeControls'
 
 interface QuickEntryBarProps {
   foods: FoodItem[]
   recentEntries: LoggedFoodEntry[]
   templates: MealTemplate[]
   totalLoggedCount: number
+  scheduleMode?: MealScheduleMode
   inputText: string
   onInputTextChange: (next: string) => void
   mealType: MealType
@@ -49,6 +54,7 @@ interface QuickEntryBarProps {
   onApplyTemplate: (template: MealTemplate) => void
   onDeleteTemplate: (templateId: string) => void
   onRequestAddCustomFood: (prefillName: string) => void
+  onRequestAddBarcodeFood: (barcode: string) => void
 }
 
 interface ChipOverride {
@@ -68,6 +74,7 @@ export function QuickEntryBar({
   foods,
   recentEntries,
   templates,
+  scheduleMode = 'standard',
   inputText,
   onInputTextChange,
   mealType,
@@ -76,6 +83,7 @@ export function QuickEntryBar({
   onApplyTemplate,
   onDeleteTemplate,
   onRequestAddCustomFood,
+  onRequestAddBarcodeFood,
 }: QuickEntryBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [overridesByInput, setOverridesByInput] = useState<{
@@ -84,12 +92,29 @@ export function QuickEntryBar({
   }>({ text: '', map: {} })
   const [chipTab, setChipTab] = useState<QuickChipTab>('frequent')
 
+  const mealLabels = getMealTypeLabels(scheduleMode)
+
   const activeOverrides =
     overridesByInput.text === inputText ? overridesByInput.map : EMPTY_OVERRIDES
 
   const parseResult = useMemo(
     () => parsePersianFoodInput(inputText, foods),
     [inputText, foods],
+  )
+
+  const { recentFoods, frequentFoods } = useMemo(
+    () => computeRecentAndFrequentFoods(recentEntries, foods, 8),
+    [recentEntries, foods],
+  )
+
+  const frequentIdSet = useMemo(
+    () => new Set(frequentFoods.map((f) => f.food.id)),
+    [frequentFoods],
+  )
+
+  const autocompleteItems = useMemo(
+    () => getInlineFoodAutocomplete(inputText, foods, frequentIdSet, 4),
+    [inputText, foods, frequentIdSet],
   )
 
   const previewItems = useMemo<ParsedFoodItem[]>(() => {
@@ -134,15 +159,11 @@ export function QuickEntryBar({
         protein: Math.round((acc.protein + item.protein) * 10) / 10,
         carbs: Math.round((acc.carbs + item.carbs) * 10) / 10,
         fat: Math.round((acc.fat + item.fat) * 10) / 10,
+        fiber: Math.round((acc.fiber + (item.fiber ?? 0)) * 10) / 10,
       }),
-      { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+      { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
     )
   }, [previewItems])
-
-  const { recentFoods, frequentFoods } = useMemo(
-    () => computeRecentAndFrequentFoods(recentEntries, foods, 8),
-    [recentEntries, foods],
-  )
 
   const effectiveChipTab: QuickChipTab =
     chipTab === 'frequent' && frequentFoods.length > 0
@@ -278,6 +299,14 @@ export function QuickEntryBar({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && autocompleteItems.length > 0) {
+      const top = autocompleteItems[0]
+      if (top.completedInput !== inputText) {
+        e.preventDefault()
+        onInputTextChange(top.completedInput)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -290,11 +319,14 @@ export function QuickEntryBar({
     textareaRef.current?.focus()
   }
 
-  const handleAppendQuickFood = (food: FoodItem, unitName: string) => {
-    const phrase = `یک ${unitName} ${food.name}`
+  const handleAppendPhrase = (phrase: string) => {
     onInputTextChange(inputText.trim() ? `${inputText.trim()} و ${phrase}` : phrase)
     setOverridesByInput({ text: '', map: {} })
     textareaRef.current?.focus()
+  }
+
+  const handleAppendQuickFood = (food: FoodItem, unitName: string) => {
+    handleAppendPhrase(`یک ${unitName} ${food.name}`)
   }
 
   return (
@@ -302,7 +334,7 @@ export function QuickEntryBar({
       aria-label="ثبت سریع وعده غذایی"
       className="card-surface rounded-2xl p-4 sm:p-5 transition-colors"
     >
-      {/* Header row + Meal Type selector */}
+      {/* Header row + Voice/Barcode + Meal Type selector */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-400">
@@ -311,37 +343,44 @@ export function QuickEntryBar({
           <div>
             <h2 className="text-sm font-semibold text-zinc-100 leading-tight">ثبت سریع غذا</h2>
             <p className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-              به زبان روزمره بنویسید؛ برآورد تقریبی آنی انجام می‌شود
+              به زبان روزمره بنویسید (پشتیبانی از «کم‌روغن»، «با کره» و «ایرفرایر»)
             </p>
           </div>
         </div>
 
-        {/* Meal Type Selector */}
-        <div
-          role="radiogroup"
-          aria-label="انتخاب وعده غذایی"
-          className="inline-flex items-center rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]"
-        >
-          {MEAL_TYPE_ORDER.map((type) => {
-            const active = mealType === type
-            return (
-              <button
-                key={type}
-                type="button"
-                id={`meal-type-${type}`}
-                role="radio"
-                aria-checked={active}
-                onClick={() => onMealTypeChange(type)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                  active
-                    ? 'bg-emerald-500 text-[#071A12] font-semibold shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {MEAL_TYPE_LABELS[type]}
-              </button>
-            )
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          <VoiceAndBarcodeControls
+            foods={foods}
+            onAppendPhrase={handleAppendPhrase}
+            onRequestAddBarcodeFood={onRequestAddBarcodeFood}
+          />
+
+          <div
+            role="radiogroup"
+            aria-label="انتخاب وعده غذایی"
+            className="inline-flex items-center rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]"
+          >
+            {MEAL_TYPE_ORDER.map((type) => {
+              const active = mealType === type
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  id={`meal-type-${type}`}
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => onMealTypeChange(type)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    active
+                      ? 'bg-emerald-500 text-[#071A12] font-semibold shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {mealLabels[type]}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -357,7 +396,7 @@ export function QuickEntryBar({
           value={inputText}
           onChange={(e) => onInputTextChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="مثلاً: دو کفگیر قورمه‌سبزی و یک کف دست سنگک و نصف لیوان دوغ"
+          placeholder="مثلاً: دو کفگیر قورمه‌سبزی کم‌روغن و یک کف دست سنگک و نصف لیوان دوغ"
           className="w-full resize-none rounded-xl bg-[#0C0C0D] border border-[#2A2A30] focus:border-emerald-500/70 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 px-3.5 py-3 pl-9 text-sm sm:text-[15px] text-zinc-100 placeholder:text-zinc-500 leading-relaxed transition-all"
         />
         {inputText.length > 0 && (
@@ -376,6 +415,34 @@ export function QuickEntryBar({
           </button>
         )}
       </div>
+
+      {/* Live Inline Autocomplete Strip while typing */}
+      {autocompleteItems.length > 0 && (
+        <div
+          data-testid="inline-autocomplete-bar"
+          className="mt-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 text-[11px]"
+        >
+          <span className="shrink-0 inline-flex items-center gap-1 text-zinc-500">
+            <Wand2 className="w-3 h-3 text-emerald-400" />
+            <span>تکمیل سریع:</span>
+          </span>
+          {autocompleteItems.map((sug) => (
+            <button
+              key={sug.food.id}
+              type="button"
+              data-testid="inline-autocomplete-chip"
+              onClick={() => {
+                onInputTextChange(sug.completedInput)
+                textareaRef.current?.focus()
+              }}
+              className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-emerald-500/15 border border-[#2C2C34] px-2.5 py-1 text-zinc-200 hover:text-emerald-300 transition-colors tabular-nums-fa"
+            >
+              <span className="font-semibold">{sug.food.name}</span>
+              <span className="text-zinc-400">(~{formatFaNumber(sug.estimatedKcal)} ک)</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Live Preview Chips */}
       {previewItems.length > 0 && (
@@ -401,6 +468,14 @@ export function QuickEntryBar({
                         <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-300 tabular-nums-fa">
                           ~{formatFaNumber(item.kcal)} کالری
                         </span>
+                        {item.modifierLabel && (
+                          <span
+                            data-testid="cooking-modifier-badge"
+                            className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-sky-500/15 text-sky-300"
+                          >
+                            {item.modifierLabel}
+                          </span>
+                        )}
                         {item.isAmbiguous && (
                           <span
                             data-testid="ambiguous-match-badge"
@@ -440,6 +515,11 @@ export function QuickEntryBar({
                         <span className="hidden sm:inline text-rose-400/90">
                           چ {formatFaNumber(item.fat, 1)}
                         </span>
+                        {(item.fiber ?? 0) > 0 && (
+                          <span className="hidden sm:inline text-lime-400/90">
+                            ف {formatFaNumber(item.fiber ?? 0, 1)}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -494,7 +574,6 @@ export function QuickEntryBar({
             })}
           </div>
 
-          {/* Summary & Submit Action Row */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#26262A]">
             <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums-fa">
               <span className="text-zinc-400">
@@ -507,6 +586,7 @@ export function QuickEntryBar({
                 پ {formatFaNumber(totalPreview.protein, 1)}گ · ک{' '}
                 {formatFaNumber(totalPreview.carbs, 1)}گ · چ{' '}
                 {formatFaNumber(totalPreview.fat, 1)}گ
+                {totalPreview.fiber > 0 ? ` · فیبر ${formatFaNumber(totalPreview.fiber, 1)}گ` : ''}
               </span>
             </div>
 
@@ -517,13 +597,13 @@ export function QuickEntryBar({
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-[#051B11] font-bold text-sm px-5 py-2.5 transition-all"
             >
               <Check className="w-4 h-4 stroke-[2.5]" />
-              <span>ثبت وعده</span>
+              <span>ثبت در {mealLabels[mealType]}</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* Unmatched segments: 1-click Add as New Food + Report Missing Food via GitHub Issue */}
+      {/* Unmatched segments */}
       {parseResult.unmatchedSegments.length > 0 && inputText.trim().length >= 2 && (
         <div
           data-testid="unmatched-segments-box"
@@ -564,7 +644,7 @@ export function QuickEntryBar({
         </div>
       )}
 
-      {/* Saved Favorite Meal Templates (1-tap log) */}
+      {/* Saved Favorite Meal Templates */}
       {templates.length > 0 && inputText.trim().length === 0 && (
         <div className="mt-3 pt-3 border-t border-[#222226]" data-testid="favorite-templates-bar">
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mb-2">
@@ -605,7 +685,7 @@ export function QuickEntryBar({
         </div>
       )}
 
-      {/* Phase 3: Frequent, Recent & Sample Quick-Tap Pills */}
+      {/* Frequent, Recent & Sample Quick-Tap Pills */}
       <div className="mt-3 pt-3 border-t border-[#222226]">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">

@@ -1,5 +1,10 @@
 import type { FoodItem, ParseResult, ParsedFoodItem } from '../../types/nutrition'
 import { getCatalogIndex, matchFoodInDatabase, VAV_PLACEHOLDER } from './catalogIndex'
+import {
+  applyCookingModifierToPer100g,
+  extractCookingModifier,
+  type CookingModifierSpec,
+} from './cookingModifiers'
 import { normalizePersian, toCompactKey } from './normalize'
 import {
   BUILTIN_UNITS,
@@ -28,7 +33,6 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
   const segments: string[] = []
 
   for (const line of lines) {
-    // 1. Protect descending Persian compound numbers ("صد و بیست و پنج", "صد و پنجاه", "بیست و پنج")
     let protectedText = line
       .replace(COMPOUND_HUNDREDS_REGEX, (_m, p1, h, t, o) =>
         o
@@ -38,13 +42,11 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
       .replace(COMPOUND_HUNDREDS_SMALL_REGEX, `$1$2 ${VAV_PLACEHOLDER} $3`)
       .replace(COMPOUND_TENS_ONES_REGEX, `$1$2 ${VAV_PLACEHOLDER} $3`)
 
-    // 2. Protect compound fractional quantities ("یک و نیم", "دو و ربع")
     protectedText = protectedText.replace(
       COMPOUND_FRAC_QTY_REGEX,
       `$1$2 ${VAV_PLACEHOLDER} $3`,
     )
 
-    // 3. Protect known dish names/aliases containing " و "
     if (protectedText.includes(' و ')) {
       for (const rule of vavDishes) {
         if (protectedText.includes(rule.dish)) {
@@ -53,7 +55,6 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
       }
     }
 
-    // 4. Split on delimiters & standalone " و "
     const rawParts = protectedText
       .split(/(?:[+,،;؛]|\s+(?:به\s+همراه|همراه\s+با)\s+|\s+و\s+)/)
       .map((part) => part.replaceAll(VAV_PLACEHOLDER, 'و').trim())
@@ -115,7 +116,14 @@ export function calculateFoodMacros(
   food: FoodItem,
   quantity: number,
   gramsPerUnit: number,
-): { totalGrams: number; kcal: number; protein: number; carbs: number; fat: number } {
+): {
+  totalGrams: number
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+  fiber: number
+} {
   const safeQty = Math.max(0.05, quantity)
   const totalGrams = Math.round(safeQty * gramsPerUnit * 10) / 10
   const factor = totalGrams / 100
@@ -126,6 +134,7 @@ export function calculateFoodMacros(
     protein: Math.round(food.per100g.protein * factor * 10) / 10,
     carbs: Math.round(food.per100g.carbs * factor * 10) / 10,
     fat: Math.round(food.per100g.fat * factor * 10) / 10,
+    fiber: Math.round((food.per100g.fiber ?? 0) * factor * 10) / 10,
   }
 }
 
@@ -208,7 +217,8 @@ export function extractCleanFoodName(rawSegment: string, foods: FoodItem[]): str
 }
 
 /**
- * Main offline, deterministic Persian Natural Language Food Parser.
+ * Main offline, deterministic Persian Natural Language Food Parser
+ * with cooking modifier awareness ("کم‌روغن", "رژیمی", "پرچرب", "با کره", "ایرفرایر").
  */
 export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseResult {
   const trimmed = input.trim()
@@ -228,18 +238,40 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       return
     }
 
-    const match = matchFoodInDatabase(foodQuery, foods)
+    // 1. Try direct match first so built-in items like "شیر کم‌چرب" or "ماست پرچرب" hit exact catalog records
+    let match = matchFoodInDatabase(foodQuery, foods)
+    let activeModifier: CookingModifierSpec | null = null
+
+    // 2. If not a near-exact catalog hit, check for cooking preparation modifiers ("قورمه‌سبزی کم‌روغن", "نیمرو بدون روغن")
+    if (!match || match.confidence < 0.96) {
+      const extracted = extractCookingModifier(foodQuery)
+      if (extracted.modifier) {
+        const strippedMatch = matchFoodInDatabase(extracted.strippedQuery, foods)
+        if (strippedMatch && (!match || strippedMatch.confidence > match.confidence)) {
+          match = strippedMatch
+          activeModifier = extracted.modifier
+        }
+      }
+    }
+
     if (!match) {
       unmatchedSegments.push(segment)
       return
     }
 
-    const resolved = resolveFoodUnit(match.food, requestedUnit)
-    const macros = calculateFoodMacros(match.food, quantity, resolved.gramsPerUnit)
+    const effectiveFood: FoodItem = activeModifier
+      ? {
+          ...match.food,
+          per100g: applyCookingModifierToPer100g(match.food.per100g, activeModifier),
+        }
+      : match.food
+
+    const resolved = resolveFoodUnit(effectiveFood, requestedUnit)
+    const macros = calculateFoodMacros(effectiveFood, quantity, resolved.gramsPerUnit)
 
     items.push({
-      id: `${match.food.id}-${index}-${quantity}-${resolved.unit}`,
-      food: match.food,
+      id: `${effectiveFood.id}-${index}-${quantity}-${resolved.unit}-${activeModifier?.id ?? 'std'}`,
+      food: effectiveFood,
       quantity,
       unit: resolved.unit,
       gramsPerUnit: resolved.gramsPerUnit,
@@ -248,8 +280,10 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       protein: macros.protein,
       carbs: macros.carbs,
       fat: macros.fat,
+      fiber: macros.fiber,
       rawSegment: segment,
       confidence: match.confidence,
+      ...(activeModifier ? { modifierLabel: activeModifier.label } : {}),
       isAmbiguous: match.isAmbiguous,
       alternatives: match.alternatives,
     })

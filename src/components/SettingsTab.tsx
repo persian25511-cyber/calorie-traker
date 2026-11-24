@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Calculator,
   Check,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   Download,
   ExternalLink,
   FileSpreadsheet,
+  KeyRound,
   Lock,
   MessageSquarePlus,
   Moon,
@@ -33,7 +35,12 @@ import type {
   BackupImportMode,
   BackupPreview,
 } from '../store/backup'
-import type { LoggedFoodEntry, ThemeMode, UserGoals } from '../types/nutrition'
+import type {
+  LoggedFoodEntry,
+  MealScheduleMode,
+  ThemeMode,
+  UserGoals,
+} from '../types/nutrition'
 import {
   ACTIVITY_LEVEL_LABELS,
   HEALTH_DISCLAIMERS,
@@ -45,11 +52,22 @@ import {
   type WeightGoal,
 } from '../utils/calorieCalculator'
 import {
+  decryptBackupJson,
+  encryptBackupJson,
+  isEncryptedBackupEnvelope,
+} from '../utils/cryptoBackup'
+import {
   buildAnonymousBetaMarkdownReport,
   clearLocalBetaMetrics,
   computeBetaSummary,
   readLocalBetaMetrics,
 } from '../utils/localMetrics'
+import {
+  readReminderSettings,
+  requestNotificationPermissionIfNeeded,
+  writeReminderSettings,
+  type LocalReminderSettings,
+} from '../utils/localReminders'
 import {
   dateFromKey,
   formatFaNumber,
@@ -91,12 +109,26 @@ const GOAL_PRESETS: Array<{ label: string; sub: string; goals: UserGoals }> = [
   {
     label: 'کاهش ملایم',
     sub: '۱٬۶۰۰ کالری',
-    goals: { dailyKcal: 1600, proteinGrams: 115, carbsGrams: 160, fatGrams: 55, waterGoalGlasses: 8 },
+    goals: {
+      dailyKcal: 1600,
+      proteinGrams: 115,
+      carbsGrams: 160,
+      fatGrams: 55,
+      fiberGrams: 26,
+      waterGoalGlasses: 8,
+    },
   },
   {
     label: 'تثبیت وزن',
     sub: '۲٬۰۰۰ کالری',
-    goals: { dailyKcal: 2000, proteinGrams: 120, carbsGrams: 230, fatGrams: 65, waterGoalGlasses: 8 },
+    goals: {
+      dailyKcal: 2000,
+      proteinGrams: 120,
+      carbsGrams: 230,
+      fatGrams: 65,
+      fiberGrams: 28,
+      waterGoalGlasses: 8,
+    },
   },
   {
     label: 'افزایش حجم',
@@ -106,6 +138,7 @@ const GOAL_PRESETS: Array<{ label: string; sub: string; goals: UserGoals }> = [
       proteinGrams: 155,
       carbsGrams: 300,
       fatGrams: 75,
+      fiberGrams: 32,
       waterGoalGlasses: 10,
     },
   },
@@ -150,6 +183,7 @@ export function SettingsTab({
   const [proteinInput, setProteinInput] = useState(String(goals.proteinGrams))
   const [carbsInput, setCarbsInput] = useState(String(goals.carbsGrams))
   const [fatInput, setFatInput] = useState(String(goals.fatGrams))
+  const [fiberInput, setFiberInput] = useState(String(goals.fiberGrams ?? 28))
   const [waterInput, setWaterInput] = useState(String(goals.waterGoalGlasses))
   const [savedNotice, setSavedNotice] = useState(false)
   const [lowKcalAcknowledged, setLowKcalAcknowledged] = useState(false)
@@ -159,13 +193,16 @@ export function SettingsTab({
     prevGoals.proteinGrams !== goals.proteinGrams ||
     prevGoals.carbsGrams !== goals.carbsGrams ||
     prevGoals.fatGrams !== goals.fatGrams ||
-    prevGoals.waterGoalGlasses !== goals.waterGoalGlasses
+    prevGoals.fiberGrams !== goals.fiberGrams ||
+    prevGoals.waterGoalGlasses !== goals.waterGoalGlasses ||
+    prevGoals.scheduleMode !== goals.scheduleMode
   ) {
     setPrevGoals(goals)
     setKcalInput(String(goals.dailyKcal))
     setProteinInput(String(goals.proteinGrams))
     setCarbsInput(String(goals.carbsGrams))
     setFatInput(String(goals.fatGrams))
+    setFiberInput(String(goals.fiberGrams ?? 28))
     setWaterInput(String(goals.waterGoalGlasses))
   }
 
@@ -178,12 +215,21 @@ export function SettingsTab({
   const [activity, setActivity] = useState<ActivityLevel>('light')
   const [weightGoal, setWeightGoal] = useState<WeightGoal>('lose')
 
-  // Backup Preview & Import Confirmation state
+  // Backup Preview, Encrypted Export/Import & Confirmation state
+  const [encryptOpen, setEncryptOpen] = useState(false)
+  const [encryptPassword, setEncryptPassword] = useState('')
+  const [pendingEncryptedRaw, setPendingEncryptedRaw] = useState<string | null>(null)
+  const [decryptPassword, setDecryptPassword] = useState('')
   const [pendingImport, setPendingImport] = useState<{
     rawJson: string
     preview: BackupPreview
     mode: BackupImportMode
   } | null>(null)
+
+  // Local Reminders state
+  const [reminderSettings, setReminderSettings] =
+    useState<LocalReminderSettings>(readReminderSettings)
+  const [notifStatusText, setNotifStatusText] = useState<string | null>(null)
 
   const [backupMessage, setBackupMessage] = useState<{
     type: 'success' | 'error'
@@ -194,7 +240,6 @@ export function SettingsTab({
   const [alsoClearOverrides, setAlsoClearOverrides] = useState(false)
   const [showIosGuide, setShowIosGuide] = useState(() => pwaStatus.isIosInstallable)
 
-  // Local Beta Metrics state (100% local, user-controlled)
   const [metricsRev, setMetricsRev] = useState(0)
   const [betaCopied, setBetaCopied] = useState(false)
 
@@ -227,13 +272,19 @@ export function SettingsTab({
   )
 
   const syncInputsAndSave = (next: UserGoals) => {
-    setKcalInput(String(next.dailyKcal))
-    setProteinInput(String(next.proteinGrams))
-    setCarbsInput(String(next.carbsGrams))
-    setFatInput(String(next.fatGrams))
-    setWaterInput(String(next.waterGoalGlasses))
+    const merged: UserGoals = {
+      ...next,
+      fiberGrams: next.fiberGrams ?? goals.fiberGrams ?? 28,
+      scheduleMode: next.scheduleMode ?? goals.scheduleMode ?? 'standard',
+    }
+    setKcalInput(String(merged.dailyKcal))
+    setProteinInput(String(merged.proteinGrams))
+    setCarbsInput(String(merged.carbsGrams))
+    setFatInput(String(merged.fatGrams))
+    setFiberInput(String(merged.fiberGrams ?? 28))
+    setWaterInput(String(merged.waterGoalGlasses))
     setLowKcalAcknowledged(false)
-    onUpdateGoals(next)
+    onUpdateGoals(merged)
     setSavedNotice(true)
     window.setTimeout(() => setSavedNotice(false), 2400)
   }
@@ -250,8 +301,14 @@ export function SettingsTab({
       proteinGrams: parseIntInput(proteinInput, goals.proteinGrams),
       carbsGrams: parseIntInput(carbsInput, goals.carbsGrams),
       fatGrams: parseIntInput(fatInput, goals.fatGrams),
+      fiberGrams: parseIntInput(fiberInput, goals.fiberGrams ?? 28),
       waterGoalGlasses: parseIntInput(waterInput, goals.waterGoalGlasses),
+      scheduleMode: goals.scheduleMode ?? 'standard',
     })
+  }
+
+  const handleChangeScheduleMode = (mode: MealScheduleMode) => {
+    onUpdateGoals({ ...goals, scheduleMode: mode })
   }
 
   const triggerDownload = (content: string, mime: string, filename: string) => {
@@ -278,6 +335,30 @@ export function SettingsTab({
     })
   }
 
+  const handleExportEncryptedJson = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const plain = onExportJson()
+      const encrypted = await encryptBackupJson(plain, encryptPassword)
+      triggerDownload(
+        encrypted,
+        'application/json;charset=utf-8',
+        `kalorishomar-encrypted-${getLocalDateKey()}.enc.json`,
+      )
+      setEncryptPassword('')
+      setEncryptOpen(false)
+      setBackupMessage({
+        type: 'success',
+        text: 'پشتیبان رمزنگاری‌شده (AES-256-GCM) با موفقیت دانلود شد.',
+      })
+    } catch (err) {
+      setBackupMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'خطا در رمزنگاری فایل پشتیبان.',
+      })
+    }
+  }
+
   const handleExportCsv = () => {
     if (entries.length === 0) {
       setBackupMessage({
@@ -297,23 +378,35 @@ export function SettingsTab({
     })
   }
 
+  const stagePlainBackupForPreview = (plainText: string) => {
+    const res = onPreviewBackupJson(plainText)
+    if (!res.ok) {
+      setPendingImport(null)
+      setBackupMessage({ type: 'error', text: res.error })
+    } else {
+      setBackupMessage(null)
+      setPendingImport({
+        rawJson: plainText,
+        preview: res.bundle.preview,
+        mode: entries.length > 0 ? 'merge' : 'replace',
+      })
+    }
+  }
+
   const handleSelectImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     try {
       const text = await file.text()
-      const res = onPreviewBackupJson(text)
-      if (!res.ok) {
+      if (isEncryptedBackupEnvelope(text)) {
         setPendingImport(null)
-        setBackupMessage({ type: 'error', text: res.error })
-      } else {
         setBackupMessage(null)
-        setPendingImport({
-          rawJson: text,
-          preview: res.bundle.preview,
-          mode: entries.length > 0 ? 'merge' : 'replace',
-        })
+        setDecryptPassword('')
+        setPendingEncryptedRaw(text)
+        return
       }
+      setPendingEncryptedRaw(null)
+      stagePlainBackupForPreview(text)
     } catch {
       setBackupMessage({
         type: 'error',
@@ -322,6 +415,19 @@ export function SettingsTab({
     } finally {
       e.target.value = ''
     }
+  }
+
+  const handleDecryptPendingImport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!pendingEncryptedRaw) return
+    const res = await decryptBackupJson(pendingEncryptedRaw, decryptPassword)
+    if (!res.ok) {
+      setBackupMessage({ type: 'error', text: res.error })
+      return
+    }
+    setPendingEncryptedRaw(null)
+    setDecryptPassword('')
+    stagePlainBackupForPreview(res.plainJson)
   }
 
   const handleConfirmImport = () => {
@@ -341,6 +447,34 @@ export function SettingsTab({
     }
   }
 
+  const handleToggleReminders = async () => {
+    const nextEnabled = !reminderSettings.enabled
+    let permNote: string | null = null
+    if (nextEnabled) {
+      const perm = await requestNotificationPermissionIfNeeded()
+      permNote =
+        perm === 'granted'
+          ? 'اعلان مرورگر فعال شد.'
+          : 'اعلان درون‌برنامه‌ای فعال شد (بدون سرور خارجی).'
+    }
+    const next: LocalReminderSettings = {
+      ...reminderSettings,
+      enabled: nextEnabled,
+      lastWaterRemindedAt: Date.now(),
+    }
+    setReminderSettings(next)
+    writeReminderSettings(next)
+    setNotifStatusText(permNote)
+  }
+
+  const handleUpdateReminderField = (patch: Partial<LocalReminderSettings>) => {
+    setReminderSettings((prev) => {
+      const next = { ...prev, ...patch }
+      writeReminderSettings(next)
+      return next
+    })
+  }
+
   const handleCopyBetaReport = async () => {
     try {
       await navigator.clipboard.writeText(betaReportMarkdown)
@@ -351,9 +485,11 @@ export function SettingsTab({
     }
   }
 
+  const scheduleMode = goals.scheduleMode ?? 'standard'
+
   return (
     <div className="space-y-4 animate-fade-up" data-testid="settings-tab">
-      {/* Smart Persian TDEE Goal Calculator (Strictly 18+ with Health Disclaimers) */}
+      {/* Smart Persian TDEE Goal Calculator (Strictly 18+) */}
       <section className="card-surface rounded-2xl overflow-hidden">
         <button
           type="button"
@@ -554,10 +690,6 @@ export function SettingsTab({
                     <span className="text-rose-400">
                       چربی {formatFaNumber(tdeeEvaluation.result.recommendedGoals.fatGrams)}گ
                     </span>
-                    <span className="text-cyan-400">
-                      آب {formatFaNumber(tdeeEvaluation.result.recommendedGoals.waterGoalGlasses)}{' '}
-                      لیوان
-                    </span>
                   </div>
                 </div>
 
@@ -579,21 +711,53 @@ export function SettingsTab({
         )}
       </section>
 
-      {/* Daily Goals Manual Editor (with soft health warning below 1,200 kcal) */}
-      <section className="card-surface rounded-2xl p-4 sm:p-5">
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-400">
-            <Target className="w-4 h-4" />
+      {/* Daily Goals + Fiber + Ramadan/Fasting Schedule Mode */}
+      <section className="card-surface rounded-2xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-400">
+              <Target className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-zinc-100">اهداف روزانه و الگوی وعده‌ها</h2>
+              <p className="text-[11px] text-zinc-400">
+                تنظیم کالری، درشت‌مغذی‌ها، فیبر و حالت وعده‌های روزمره یا ماه رمضان / فستینگ
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-zinc-100">اهداف روزانه کالری و درشت‌مغذی‌ها</h2>
-            <p className="text-[11px] text-zinc-400">
-              مقادیر زیر را می‌توانید به صورت دستی یا با الگوهای متعادل تنظیم کنید
-            </p>
+
+          <div
+            data-testid="meal-schedule-switcher"
+            className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A] text-xs"
+          >
+            <button
+              type="button"
+              id="schedule-standard-btn"
+              onClick={() => handleChangeScheduleMode('standard')}
+              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                scheduleMode === 'standard'
+                  ? 'bg-emerald-500 text-[#051B11] font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              معمولی (صبحانه/ناهار)
+            </button>
+            <button
+              type="button"
+              id="schedule-ramadan-btn"
+              onClick={() => handleChangeScheduleMode('ramadan')}
+              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                scheduleMode === 'ramadan'
+                  ? 'bg-emerald-500 text-[#051B11] font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              رمضان / فستینگ (سحری/افطاری)
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="grid grid-cols-3 gap-2">
           {GOAL_PRESETS.map((p) => (
             <button
               key={p.label}
@@ -612,7 +776,7 @@ export function SettingsTab({
         </div>
 
         <form onSubmit={handleSaveGoals} className="space-y-3.5">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
             <div>
               <label htmlFor="goal-kcal-input" className="block text-xs text-emerald-400 mb-1.5">
                 کالری روزانه
@@ -626,13 +790,13 @@ export function SettingsTab({
                   setKcalInput(e.target.value)
                   setLowKcalAcknowledged(false)
                 }}
-                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-3 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-emerald-500/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
               />
             </div>
 
             <div>
               <label htmlFor="goal-protein-input" className="block text-xs text-sky-400 mb-1.5">
-                پروتئین (گرم)
+                پروتئین (گ)
               </label>
               <input
                 id="goal-protein-input"
@@ -640,13 +804,13 @@ export function SettingsTab({
                 inputMode="numeric"
                 value={proteinInput}
                 onChange={(e) => setProteinInput(e.target.value)}
-                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-sky-400/70 focus:outline-none px-3 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-sky-400/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
               />
             </div>
 
             <div>
               <label htmlFor="goal-carbs-input" className="block text-xs text-amber-400 mb-1.5">
-                کربوهیدرات (گرم)
+                کربوهیدرات (گ)
               </label>
               <input
                 id="goal-carbs-input"
@@ -654,13 +818,13 @@ export function SettingsTab({
                 inputMode="numeric"
                 value={carbsInput}
                 onChange={(e) => setCarbsInput(e.target.value)}
-                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-amber-400/70 focus:outline-none px-3 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-amber-400/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
               />
             </div>
 
             <div>
               <label htmlFor="goal-fat-input" className="block text-xs text-rose-400 mb-1.5">
-                چربی (گرم)
+                چربی (گ)
               </label>
               <input
                 id="goal-fat-input"
@@ -668,11 +832,25 @@ export function SettingsTab({
                 inputMode="numeric"
                 value={fatInput}
                 onChange={(e) => setFatInput(e.target.value)}
-                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-rose-400/70 focus:outline-none px-3 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-rose-400/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
               />
             </div>
 
-            <div className="col-span-2 sm:col-span-1">
+            <div>
+              <label htmlFor="goal-fiber-input" className="block text-xs text-lime-400 mb-1.5">
+                فیبر (گ)
+              </label>
+              <input
+                id="goal-fiber-input"
+                type="text"
+                inputMode="numeric"
+                value={fiberInput}
+                onChange={(e) => setFiberInput(e.target.value)}
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-lime-400/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+              />
+            </div>
+
+            <div>
               <label htmlFor="goal-water-input" className="block text-xs text-cyan-400 mb-1.5">
                 آب (لیوان)
               </label>
@@ -682,7 +860,7 @@ export function SettingsTab({
                 inputMode="numeric"
                 value={waterInput}
                 onChange={(e) => setWaterInput(e.target.value)}
-                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-cyan-400/70 focus:outline-none px-3 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
+                className="w-full rounded-xl bg-[#0C0C0D] border border-[#2C2C33] focus:border-cyan-400/70 focus:outline-none px-2.5 py-2.5 text-sm text-zinc-100 tabular-nums-fa"
               />
             </div>
           </div>
@@ -734,46 +912,117 @@ export function SettingsTab({
         </form>
       </section>
 
-      {/* Appearance Theme Switcher */}
-      <section className="card-surface rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-bold text-zinc-100">ظاهر برنامه</h2>
-          <p className="text-[11px] text-zinc-400 mt-0.5">
-            حالت تاریک پیش‌فرض برای مطالعه راحت شبانه؛ حالت روشن برای نور روز
-          </p>
+      {/* Appearance & Optional Local Reminders */}
+      <section className="card-surface rounded-2xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-zinc-100">ظاهر برنامه</h2>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              حالت تاریک پیش‌فرض برای مطالعه راحت شبانه؛ حالت روشن برای نور روز
+            </p>
+          </div>
+
+          <div className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]">
+            <button
+              type="button"
+              id="theme-dark-btn"
+              onClick={() => onThemeChange('dark')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                theme === 'dark'
+                  ? 'bg-emerald-500 text-[#051B11] font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Moon className="w-3.5 h-3.5" />
+              <span>تاریک</span>
+            </button>
+            <button
+              type="button"
+              id="theme-light-btn"
+              onClick={() => onThemeChange('light')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                theme === 'light'
+                  ? 'bg-emerald-500 text-[#051B11] font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Sun className="w-3.5 h-3.5" />
+              <span>روشن</span>
+            </button>
+          </div>
         </div>
 
-        <div className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262A]">
-          <button
-            type="button"
-            id="theme-dark-btn"
-            onClick={() => onThemeChange('dark')}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              theme === 'dark'
-                ? 'bg-emerald-500 text-[#051B11] font-bold'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Moon className="w-3.5 h-3.5" />
-            <span>تاریک</span>
-          </button>
-          <button
-            type="button"
-            id="theme-light-btn"
-            onClick={() => onThemeChange('light')}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              theme === 'light'
-                ? 'bg-emerald-500 text-[#051B11] font-bold'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5" />
-            <span>روشن</span>
-          </button>
+        {/* Local Notification Reminders */}
+        <div className="pt-3.5 border-t border-[#222227] space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-sky-400" />
+              <div>
+                <div className="text-xs font-semibold text-zinc-100">
+                  یادآور محلی نوشیدن آب و ثبت شام (بدون سرور پوش)
+                </div>
+                <div className="text-[11px] text-zinc-400">
+                  فقط روی همین مرورگر اجرا می‌شود و هیچ داده‌ای ارسال نمی‌کند
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              id="toggle-local-reminders-btn"
+              onClick={() => void handleToggleReminders()}
+              className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-colors ${
+                reminderSettings.enabled
+                  ? 'bg-emerald-500 text-[#051B11]'
+                  : 'bg-[#1E1E22] border border-[#2E2E36] text-zinc-300'
+              }`}
+            >
+              {reminderSettings.enabled ? 'فعال است' : 'فعال‌سازی یادآور'}
+            </button>
+          </div>
+
+          {reminderSettings.enabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-xs">
+              <div className="flex items-center justify-between rounded-xl bg-[#0C0C0D] border border-[#26262E] px-3 py-2">
+                <span className="text-zinc-400">ساعت یادآور ثبت شام:</span>
+                <select
+                  aria-label="ساعت یادآور شام"
+                  value={reminderSettings.dinnerHour}
+                  onChange={(e) =>
+                    handleUpdateReminderField({ dinnerHour: Number(e.target.value) })
+                  }
+                  className="bg-[#1E1E22] rounded-lg px-2 py-1 text-zinc-100 tabular-nums-fa"
+                >
+                  {[19, 20, 21, 22].map((h) => (
+                    <option key={h} value={h}>
+                      ساعت {formatFaNumber(h)}:۰۰
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-[#0C0C0D] border border-[#26262E] px-3 py-2">
+                <span className="text-zinc-400">فاصله یادآور آب:</span>
+                <select
+                  aria-label="فاصله یادآور آب"
+                  value={reminderSettings.waterIntervalMin}
+                  onChange={(e) =>
+                    handleUpdateReminderField({ waterIntervalMin: Number(e.target.value) })
+                  }
+                  className="bg-[#1E1E22] rounded-lg px-2 py-1 text-zinc-100 tabular-nums-fa"
+                >
+                  <option value={0}>غیرفعال</option>
+                  <option value={60}>هر ۱ ساعت</option>
+                  <option value={120}>هر ۲ ساعت</option>
+                  <option value={180}>هر ۳ ساعت</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {notifStatusText && <p className="text-[11px] text-emerald-400">{notifStatusText}</p>}
         </div>
       </section>
 
-      {/* Local-first Backup (Preview + Merge/Replace + Auto Snapshot) */}
+      {/* Local-first Backup (JSON + AES-256-GCM Encrypted + CSV + Preview/Merge/Replace) */}
       <section className="card-surface rounded-2xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -781,7 +1030,9 @@ export function SettingsTab({
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-zinc-100">پشتیبان‌گیری و بازیابی ایمن</h2>
+              <h2 className="text-sm font-bold text-zinc-100">
+                پشتیبان‌گیری، رمزنگاری و بازیابی ایمن
+              </h2>
               <p className="text-[11px] text-zinc-400 tabular-nums-fa">
                 {formatFaNumber(foodsCount)} غذا ({formatFaNumber(customFoodsCount)} شخصی ·{' '}
                 {formatFaNumber(overridesCount)} ویرایش‌شده) · {formatFaNumber(entries.length)} وعده
@@ -801,40 +1052,50 @@ export function SettingsTab({
             }`}
           >
             {persistenceState === 'persisted'
-              ? 'حافظه پایدار مرورگر + آینه IndexedDB فعال'
+              ? 'حافظه پایدار + بازیابی IndexedDB فعال'
               : 'پشتیبان‌گیری هفتگی توصیه می‌شود'}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button
             type="button"
             id="export-json-btn"
             onClick={handleExportJson}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3 py-3 text-xs font-semibold text-zinc-100 transition-colors"
           >
-            <Download className="w-4 h-4 text-emerald-400" />
-            <span>خروجی پشتیبان (JSON)</span>
+            <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>خروجی JSON</span>
+          </button>
+
+          <button
+            type="button"
+            id="toggle-encrypted-export-btn"
+            onClick={() => setEncryptOpen((v) => !v)}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3 py-3 text-xs font-semibold text-zinc-100 transition-colors"
+          >
+            <KeyRound className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>پشتیبان رمزدار</span>
           </button>
 
           <button
             type="button"
             id="export-csv-btn"
             onClick={handleExportCsv}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3 py-3 text-xs font-semibold text-zinc-100 transition-colors"
           >
-            <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-            <span>خروجی اکسل (CSV)</span>
+            <FileSpreadsheet className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>خروجی اکسل CSV</span>
           </button>
 
           <button
             type="button"
             id="import-json-btn"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3.5 py-3 text-xs font-semibold text-zinc-100 transition-colors"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1E1E22] hover:bg-[#27272E] border border-[#2E2E35] px-3 py-3 text-xs font-semibold text-zinc-100 transition-colors"
           >
-            <Upload className="w-4 h-4 text-sky-400" />
-            <span>بازیابی از JSON</span>
+            <Upload className="w-4 h-4 text-sky-400 shrink-0" />
+            <span>بازیابی پشتیبان</span>
           </button>
 
           <input
@@ -845,6 +1106,76 @@ export function SettingsTab({
             className="hidden"
           />
         </div>
+
+        {/* Password-Protected AES-256-GCM Export Drawer */}
+        {encryptOpen && (
+          <form
+            onSubmit={(e) => void handleExportEncryptedJson(e)}
+            data-testid="encrypted-export-form"
+            className="rounded-xl bg-[#0C0C0D] border border-emerald-500/30 p-3.5 space-y-2.5 text-xs animate-fade-up"
+          >
+            <div className="font-semibold text-emerald-300">
+              رمزنگاری پیشرفته با کلید شخصی (AES-256-GCM در مرورگر)
+            </div>
+            <p className="text-[11px] text-zinc-400">
+              مناسب ذخیره امن در تلگرام، ایمیل یا فضای ابری؛ بدون این رمز عبور هیچ‌کس قادر به باز کردن
+              فایل نخواهد بود.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                required
+                minLength={4}
+                value={encryptPassword}
+                onChange={(e) => setEncryptPassword(e.target.value)}
+                placeholder="رمز عبور دلخواه (حداقل ۴ نویسه)"
+                className="flex-1 rounded-xl bg-[#161618] border border-[#2E2E36] px-3 py-2 text-xs text-zinc-100"
+              />
+              <button
+                type="submit"
+                className="rounded-xl bg-emerald-500 text-[#051B11] font-bold px-3.5 py-2 text-xs shrink-0"
+              >
+                رمزنگاری و دانلود
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Password Prompt when Importing an Encrypted `.enc.json` File */}
+        {pendingEncryptedRaw && (
+          <form
+            onSubmit={(e) => void handleDecryptPendingImport(e)}
+            data-testid="encrypted-import-prompt"
+            className="rounded-xl bg-[#0C0C0D] border border-sky-500/35 p-3.5 space-y-2.5 text-xs animate-fade-up"
+          >
+            <div className="font-semibold text-sky-300">
+              فایل پشتیبان رمزنگاری‌شده شناسایی شد — رمز عبور را وارد کنید:
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                required
+                value={decryptPassword}
+                onChange={(e) => setDecryptPassword(e.target.value)}
+                placeholder="رمز عبور فایل پشتیبان"
+                className="flex-1 rounded-xl bg-[#161618] border border-[#2E2E36] px-3 py-2 text-xs text-zinc-100"
+              />
+              <button
+                type="submit"
+                className="rounded-xl bg-sky-500 text-[#041824] font-bold px-3.5 py-2 text-xs shrink-0"
+              >
+                رمزگشایی و پیش‌نمایش
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingEncryptedRaw(null)}
+                className="rounded-xl bg-[#222228] text-zinc-300 px-3 py-2 text-xs"
+              >
+                لغو
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Interactive Backup Preview & Merge/Replace Confirmation */}
         {pendingImport && (
@@ -925,10 +1256,6 @@ export function SettingsTab({
                   مقادیر قبلی وزن/آب پاک می‌شوند تا دادهٔ ناسازگار باقی نماند.
                 </p>
               )}
-
-            <p className="text-[11px] text-zinc-400">
-              پیش از اعمال، یک نسخه پشتیبان خودکار از وضعیت فعلی شما در حافظه مرورگر ذخیره می‌شود.
-            </p>
 
             <div className="flex items-center gap-2 pt-1">
               <button
@@ -1059,13 +1386,14 @@ export function SettingsTab({
               مراحل افزودن به صفحه اصلی در آیفون و آیپد (مرورگر Safari):
             </div>
             <ol className="list-decimal list-inside text-zinc-300 space-y-1">
-              <li>این صفحه را در مرورگر <strong>Safari</strong> باز کنید.</li>
               <li>
-                روی دکمه اشتراک‌گذاری (<strong>Share</strong> با نماد مربع و فلش رو به بالا در پایین
-                صفحه) بزنید.
+                این صفحه را در مرورگر <strong>Safari</strong> باز کنید.
               </li>
               <li>
-                در منوی بازشده، گزینه <strong>Add to Home Screen</strong> را انتخاب کرده و در بالا{' '}
+                روی دکمه اشتراک‌گذاری (<strong>Share</strong> در نوار پایین صفحه) بزنید.
+              </li>
+              <li>
+                گزینه <strong>Add to Home Screen</strong> را انتخاب کرده و در بالا{' '}
                 <strong>Add</strong> را لمس کنید.
               </li>
             </ol>
@@ -1073,7 +1401,7 @@ export function SettingsTab({
         )}
       </section>
 
-      {/* Feedback Channel & Local-Only Beta Quality Report (Phase 1 & Phase 2) */}
+      {/* Feedback Channel & Local-Only Beta Quality Report */}
       <section className="card-surface rounded-2xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -1110,7 +1438,6 @@ export function SettingsTab({
           </div>
         </div>
 
-        {/* Phase 2: 100% Local Anonymous Beta Telemetry Summary */}
         <div
           data-testid="local-beta-metrics-card"
           className="rounded-xl bg-[#0C0C0D] border border-[#24242B] p-3.5 space-y-2.5 text-xs"
@@ -1130,19 +1457,6 @@ export function SettingsTab({
             {formatFaNumber(betaSummary.activeDaysCount)} · عبارات تشخیص‌داده‌نشده:{' '}
             {formatFaNumber(betaSummary.topUnmatched.length)} مورد
           </div>
-
-          {betaSummary.topUnmatched.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {betaSummary.topUnmatched.slice(0, 6).map((u) => (
-                <span
-                  key={u.phrase}
-                  className="px-2 py-0.5 rounded-md bg-[#1A1A20] text-zinc-300 text-[11px]"
-                >
-                  «{u.phrase}» ({formatFaNumber(u.count)})
-                </span>
-              ))}
-            </div>
-          )}
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
@@ -1210,8 +1524,8 @@ export function SettingsTab({
         <div className="space-y-2.5 text-xs text-zinc-300 leading-relaxed">
           <p>
             <strong className="text-zinc-100">حریم خصوصی ۱۰۰٪ محلی و بدون ردیابی:</strong> تمام
-            وعده‌ها، اهداف، وزن و غذاهای شخصی شما فقط روی همین دستگاه ذخیره می‌شوند. هیچ ثبت‌نامی
-            وجود ندارد، هیچ اطلاعاتی به سرور ارسال نمی‌شود و هیچ اسکریپت ردیابی استفاده نمی‌شود.
+            وعده‌ها، اهداف، وزن و غذاهای شخصی شما فقط روی همین دستگاه (`localStorage` + `IndexedDB`)
+            ذخیره می‌شوند. هیچ ثبت‌نامی وجود ندارد و هیچ اطلاعاتی به سرور ارسال نمی‌شود.
           </p>
           <p>
             <strong className="text-zinc-100">سلب مسئولیت پزشکی:</strong>{' '}

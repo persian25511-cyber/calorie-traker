@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   preImportSnapshot: 'kalorishomar_v3_pre_import_snapshot',
   onboarding: 'kalorishomar_v3_onboarding',
   localMetrics: 'kalorishomar_v3_local_metrics',
+  reminders: 'kalorishomar_v3_reminders',
 } as const
 
 const LEGACY_V1_MAP: Array<[v1Key: string, v2Key: string]> = [

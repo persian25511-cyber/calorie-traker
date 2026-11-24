@@ -57,16 +57,37 @@ async function run() {
       }
     })
 
-    // 2. Log a Persian meal online (also verifying non-blocking onboarding & SW claim)
+    // 2. Verify Live Inline Autocomplete & Cooking Modifier Badge before logging standard meal
+    await page.locator('#quick-food-input').fill('دو کفگیر قورم')
+    await page.waitForSelector('[data-testid="inline-autocomplete-bar"]', { timeout: 5000 })
+    await page.locator('[data-testid="inline-autocomplete-chip"]').first().click()
+
+    await page.locator('#quick-food-input').fill('دو کفگیر قورمه‌سبزی کم‌روغن')
+    await page.waitForSelector('[data-testid="cooking-modifier-badge"]', { timeout: 5000 })
+
+    // 3. Log standard Persian meal online & verify Dietary Fiber progress bar + exact kcal
     await page.locator('#quick-food-input').fill('دو کفگیر قورمه‌سبزی و یک کف دست سنگک')
     await page.locator('#meal-type-lunch').click()
     await page.locator('#submit-meal-btn').click()
     await page.waitForSelector('[data-testid="logged-meal-item"]', { timeout: 5000 })
+    await page.waitForSelector('[data-testid="macro-bar-fiber"]', { timeout: 5000 })
 
     const onlineKcal = await page.locator('[data-testid="consumed-kcal"]').first().innerText()
     if (onlineKcal !== '۴۲۵') {
       throw new Error(`Expected ۴۲۵ online, got ${onlineKcal}`)
     }
+
+    // 4. Verify Jalali (Shamsi) Monthly Calendar modal opens & closes cleanly
+    await page.locator('#open-jalali-calendar-btn').click()
+    await page.waitForSelector('[data-testid="jalali-calendar-modal"]', { timeout: 5000 })
+    await page.keyboard.press('Escape')
+
+    // 5. Verify Iranian 626 Barcode Scanner lookup modal
+    await page.locator('#open-barcode-scanner-btn').click()
+    await page.waitForSelector('[data-testid="barcode-scanner-modal"]', { timeout: 5000 })
+    await page.locator('#barcode-manual-input').fill('6260101200112')
+    await page.waitForSelector('[data-testid="use-barcode-food-btn"]', { timeout: 5000 })
+    await page.keyboard.press('Escape')
 
     // Verify full built-in catalog is NOT dumped into localStorage (v3 user-layer architecture)
     const hasLegacyFullFoodsKey = await page.evaluate(
@@ -76,7 +97,7 @@ async function run() {
       throw new Error('Expected kalorishomar_v2_foods NOT to be written in schema v3')
     }
 
-    // 3. Go completely OFFLINE & reload — verify SW serves app shell, fonts & local data!
+    // 6. Go completely OFFLINE & reload — verify SW + IndexedDB/localStorage serve everything!
     await context.setOffline(true)
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForSelector('[data-testid="consumed-kcal"]', { timeout: 10000 })
@@ -86,9 +107,10 @@ async function run() {
       throw new Error(`Expected ۴۲۵ after offline reload, got ${offlineKcal}`)
     }
 
-    // 4. Navigate to all lazy-loaded tabs while OFFLINE & verify Phase 0-3 features
+    // 7. Navigate to all lazy-loaded tabs while OFFLINE & verify Native SVG Charts + Settings
     await page.locator('#mobile-nav-trends').click()
     await page.waitForSelector('[data-testid="weekly-trends-tab"]', { timeout: 8000 })
+    await page.waitForSelector('[data-testid="weekly-bar-chart"]', { timeout: 5000 })
     await page.locator('#history-search-input').fill('قورمه')
     await page.waitForSelector('[data-testid="history-search-result-row"]', { timeout: 5000 })
 
@@ -100,7 +122,9 @@ async function run() {
     await page.waitForSelector('[data-testid="settings-tab"]', { timeout: 8000 })
     await page.waitForSelector('[data-testid="local-beta-metrics-card"]', { timeout: 5000 })
 
-    // Verify soft health warning for <1200 kcal manual goal
+    // Verify Ramadan / Fasting schedule toggle & soft <1200 kcal health warning
+    await page.locator('#schedule-ramadan-btn').click()
+    await page.locator('#schedule-standard-btn').click()
     await page.locator('#goal-kcal-input').fill('1000')
     await page.waitForSelector('[data-testid="low-calorie-soft-warning"]', { timeout: 5000 })
 
@@ -114,7 +138,7 @@ async function run() {
 
     await browser.close()
     console.log(
-      'Offline PWA E2E passed: single-visit SW precache -> meal logged -> v3 user-layer storage -> offline reload -> history search, verified badges, low-kcal warning, beta metrics & theme verified with 0 errors!',
+      'Offline PWA E2E (v1.2.0) passed: SW precache -> inline autocomplete -> cooking modifier -> fiber bar -> Jalali calendar -> 626 barcode lookup -> offline reload -> native SVG charts -> Ramadan toggle -> 0 errors!',
     )
   } finally {
     server.kill('SIGTERM')

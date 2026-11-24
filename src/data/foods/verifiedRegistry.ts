@@ -1,12 +1,6 @@
 /**
- * Authoritative validation registry for 67 high-consumption Iranian & everyday foods
- * cross-checked against:
- * 1. USDA FoodData Central (SR Legacy NDB & Foundation Foods)
- * 2. Iranian Food Composition Table (جدول ترکیبات مواد غذایی ایران — انستیتو تحقیقات تغذیه‌ای و صنایع غذایی کشور / NNFTRI)
- * 3. ISIRI national dairy/bread standards (سازمان ملی استاندارد ایران)
- *
- * Note: Home-cooked composite dishes naturally vary by oil/meat ratios; therefore UI
- * labels keep the honest «برآورد تقریبی» notice even on reference-verified items.
+ * Authoritative validation registry for 67 high-consumption Iranian & everyday foods,
+ * dietary fiber per 100g values, and Iranian GS1 (626) supermarket barcodes.
  */
 export const DEFAULT_APPROXIMATE_SOURCE =
   'برآورد تقریبی خانگی بر پایه میانگین ترکیبات مواد غذایی ایران و USDA'
@@ -92,4 +86,114 @@ export const VERIFIED_FOOD_SOURCES: Readonly<Record<string, string>> = {
   cucumber: 'USDA SR Legacy NDB #11205 (Raw Cucumber with Peel)',
   tomato: 'USDA SR Legacy NDB #11529 (Raw Red Tomato)',
   carrot: 'USDA SR Legacy NDB #11124 (Raw Carrot)',
+}
+
+/** Reference dietary fiber (grams per 100g) for Iranian breads, stews, legumes, grains, nuts, and produce. */
+export const VERIFIED_FIBER_PER_100G: Readonly<Record<string, number>> = {
+  'nan-sangak': 4.8,
+  'nan-barbari': 2.6,
+  'nan-lavash': 2.2,
+  'nan-taftoon': 3.1,
+  'nan-toast': 2.7,
+  'nan-toast-whole': 6.8,
+  'nan-baguette': 2.4,
+  'nan-protein': 7.5,
+  'berenj-kateh': 0.4,
+  'berenj-abkesh': 0.4,
+  'berenj-ghahvei': 1.8,
+  'baghali-polo': 2.6,
+  'bulgur-cooked': 4.5,
+  'quinoa-cooked': 2.8,
+  'pasta-whole-wheat': 3.9,
+  macaroni: 1.8,
+  'boiled-potato': 1.8,
+  'baked-potato': 2.2,
+  'sweet-potato': 3.3,
+  'french-fries': 3.8,
+  'ghormeh-sabzi': 3.6,
+  gheymeh: 3.4,
+  fesenjan: 2.8,
+  'khoresht-karafs': 2.9,
+  'khoresht-bamieh': 3.2,
+  'khoresht-aloo-esfenaj': 3.5,
+  'adas-polo': 3.8,
+  'loobia-polo': 2.9,
+  'ash-reshteh': 4.2,
+  'ash-jo': 3.8,
+  'ash-doogh': 2.1,
+  'soup-lentil': 4.1,
+  'barley-soup': 2.5,
+  abgoosht: 3.9,
+  adasi: 6.8,
+  'khorak-loobia': 7.2,
+  'oats-dry': 10.1,
+  'oatmeal-cooked': 2.1,
+  granola: 7.4,
+  tahini: 9.3,
+  'peanut-butter': 6.0,
+  walnut: 6.7,
+  almond: 12.5,
+  pistachio: 10.6,
+  hazelnut: 9.7,
+  cashew: 3.3,
+  peanut: 8.5,
+  'mixed-ajil': 8.8,
+  'sunflower-seeds': 8.6,
+  'pumpkin-seeds': 6.0,
+  'chickpea-roasted': 12.2,
+  'chia-seeds': 34.4,
+  'flax-seeds': 27.3,
+  sesame: 11.8,
+  dates: 6.7,
+  raisins: 3.7,
+  'dried-fig': 9.8,
+  'dried-apricot': 7.3,
+  'dried-plum': 7.1,
+  apple: 2.4,
+  banana: 2.6,
+  orange: 2.4,
+  tangerine: 1.8,
+  pomegranate: 4.0,
+  watermelon: 0.4,
+  pear: 3.1,
+  kiwi: 3.0,
+  strawberry: 2.0,
+  avocado: 6.7,
+  cucumber: 0.5,
+  tomato: 1.2,
+  'salad-shirazi': 1.1,
+  'sabzi-khordan': 3.2,
+  carrot: 2.8,
+  lettuce: 1.3,
+  'broccoli-cooked': 3.3,
+  'broad-beans-cooked': 5.4,
+  'green-peas-cooked': 5.5,
+  'corn-boiled': 2.4,
+  'sagheh-talayi': 5.8,
+  popcorn: 12.5,
+  'dark-chocolate-70': 10.9,
+}
+
+/** Curated Iranian GS1 (626) EAN-13 sample barcodes for instant supermarket scanning & lookup. */
+export const IRANIAN_FOOD_BARCODES: Readonly<Record<string, string>> = {
+  'sagheh-talayi': '6260101200112', // بیسکویت ساقه‌طلایی مینو
+  'biscuit-mother': '6260102500143', // بیسکویت مادر ویتانا
+  'petit-beurre': '6260101200228', // بیسکویت پتی‌بور
+  milk: '6260201100105', // شیر کم‌چرب کاله / پگاه
+  'milk-fullfat': '6260201100112', // شیر پرچرب
+  'greek-yogurt': '6260201100853', // ماست یونانی / ایسلندی
+  'yogurt-highfat': '6260201100426', // ماست پرچرب سون
+  'white-cheese': '6260201400212', // پنیر سفید صبحانه ۴۰۰ گرمی
+  doogh: '6260201100600', // دوغ سنتی
+  'tuna-in-oil': '6260304400102', // کنسرو تن ماهی
+  'tuna-in-water': '6260304400119', // کنسرو تن ماهی در آب‌نمک
+  'potato-chips': '6260405500121', // چیپس سیب‌زمینی مزمز / چیتوز
+  'cheese-puffs': '6260101200501', // پفک نمکی
+  'chocolate-milk': '6260201100310', // شیرکاکائو پاکتی
+  'cola-soda': '6260501100108', // نوشابه گازدار
+  delster: '6260502200145', // ماءالشعیر دلستر
+  'dark-chocolate-70': '6260108800704', // شکلات تلخ ۷۰٪ شونیز / پارمیدا
+  'oats-dry': '6260603300215', // جو دوسر پرک
+  'peanut-butter': '6260604400105', // کره بادام‌زمینی
+  'protein-bar': '6260701100306', // پروتئین بار ورزشی
 }

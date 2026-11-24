@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_IRANIAN_FOODS } from '../data/iranianFoods'
-import { idbSet } from '../storage/idbAdapter'
+import { idbGetMany, idbSet } from '../storage/idbAdapter'
 import {
   analyzeBackupJson,
   applyBackupBundle,
@@ -55,6 +55,16 @@ const SEVEN_DAYS_MS = 7 * DAY_MS
 const FOURTEEN_DAYS_MS = 14 * DAY_MS
 const DEFAULT_BUILTIN_IDS = new Set(DEFAULT_IRANIAN_FOODS.map((f) => f.id))
 
+const IDB_HYDRATION_KEYS = [
+  STORAGE_KEYS.customFoods,
+  STORAGE_KEYS.foodOverrides,
+  STORAGE_KEYS.entries,
+  STORAGE_KEYS.goals,
+  STORAGE_KEYS.water,
+  STORAGE_KEYS.weights,
+  STORAGE_KEYS.templates,
+] as const
+
 export type BackupReminderLevel = 'none' | 'gentle' | 'urgent'
 
 interface PreImportSnapshotEnvelope {
@@ -69,7 +79,6 @@ function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-/** Calculates current consecutive days with at least one logged meal ending today or yesterday. */
 export function computeLoggingStreak(entries: LoggedFoodEntry[], todayKey: string): number {
   if (entries.length === 0) return 0
   const loggedDays = new Set(entries.map((e) => e.dateKey))
@@ -181,8 +190,74 @@ export function useNutritionStore() {
     }
   }, [customFoods, entries, foodOverrides, goals, templates, waterByDate, weights])
 
+  // Primary IndexedDB Recovery & Bidirectional Sync on mount:
+  // If localStorage was evicted/empty while IndexedDB survived, automatically recover state;
+  // conversely, if IndexedDB lacks keys present in localStorage, seed IndexedDB!
   useEffect(() => {
     let active = true
+    void idbGetMany(IDB_HYDRATION_KEYS).then((idbMap) => {
+      if (!active) return
+      const snap = snapshotRef.current
+
+      const idbEntries = sanitizeEntryList(idbMap[STORAGE_KEYS.entries])
+      if (snap.entries.length === 0 && idbEntries.length > 0) {
+        setEntries(idbEntries)
+      } else if (snap.entries.length > 0 && idbEntries.length === 0) {
+        void idbSet(STORAGE_KEYS.entries, snap.entries)
+      }
+
+      const idbCustom = sanitizeFoodList(idbMap[STORAGE_KEYS.customFoods]).map((f) => ({
+        ...f,
+        isCustom: true,
+      }))
+      if (snap.customFoods.length === 0 && idbCustom.length > 0) {
+        setCustomFoods(idbCustom)
+      } else if (snap.customFoods.length > 0 && idbCustom.length === 0) {
+        void idbSet(STORAGE_KEYS.customFoods, snap.customFoods)
+      }
+
+      const idbOverrides = sanitizeFoodOverrides(idbMap[STORAGE_KEYS.foodOverrides])
+      if (Object.keys(snap.foodOverrides).length === 0 && Object.keys(idbOverrides).length > 0) {
+        setFoodOverrides(idbOverrides)
+      } else if (
+        Object.keys(snap.foodOverrides).length > 0 &&
+        Object.keys(idbOverrides).length === 0
+      ) {
+        void idbSet(STORAGE_KEYS.foodOverrides, snap.foodOverrides)
+      }
+
+      const idbWeights = sanitizeWeightList(idbMap[STORAGE_KEYS.weights])
+      if (snap.weights.length === 0 && idbWeights.length > 0) {
+        setWeights(idbWeights)
+      } else if (snap.weights.length > 0 && idbWeights.length === 0) {
+        void idbSet(STORAGE_KEYS.weights, snap.weights)
+      }
+
+      const idbWater = sanitizeWaterMap(idbMap[STORAGE_KEYS.water])
+      if (Object.keys(snap.waterByDate).length === 0 && Object.keys(idbWater).length > 0) {
+        setWaterByDate(idbWater)
+      } else if (Object.keys(snap.waterByDate).length > 0 && Object.keys(idbWater).length === 0) {
+        void idbSet(STORAGE_KEYS.water, snap.waterByDate)
+      }
+
+      const idbTemplates = sanitizeTemplateList(idbMap[STORAGE_KEYS.templates])
+      if (snap.templates.length === 0 && idbTemplates.length > 0) {
+        setTemplates(idbTemplates)
+      } else if (snap.templates.length > 0 && idbTemplates.length === 0) {
+        void idbSet(STORAGE_KEYS.templates, snap.templates)
+      }
+
+      if (
+        typeof window !== 'undefined' &&
+        window.localStorage.getItem(STORAGE_KEYS.goals) === null &&
+        idbMap[STORAGE_KEYS.goals]
+      ) {
+        setGoals(normalizeGoals(idbMap[STORAGE_KEYS.goals] as Partial<UserGoals>))
+      } else {
+        void idbSet(STORAGE_KEYS.goals, snap.goals)
+      }
+    })
+
     requestPersistentStorage().then((status) => {
       if (active) setPersistenceState(status)
     })
@@ -209,12 +284,11 @@ export function useNutritionStore() {
       }
     }
     const res = writeStorageJson(key, value)
+    // Always persist to IndexedDB even if localStorage hits 5MB quota!
+    void idbSet(key, value)
     if (!res.ok) {
       const msg = res.error ?? 'خطا در ذخیره‌سازی محلی'
       queueMicrotask(() => setStorageError(msg))
-    } else {
-      // Non-blocking background mirror to IndexedDB (see docs/STORAGE_ROADMAP.md)
-      void idbSet(key, value)
     }
   }, [])
 
@@ -256,7 +330,6 @@ export function useNutritionStore() {
     }
   }, [lastBackupAt, persistOnChange])
 
-  // Real-time Cross-Tab Synchronization with full sanitization on every external tab write
   useEffect(() => {
     const handleStorageSync = (event: StorageEvent) => {
       if (!event.key || event.newValue === null) return
@@ -358,6 +431,8 @@ export function useNutritionStore() {
         protein: item.protein,
         carbs: item.carbs,
         fat: item.fat,
+        fiber: item.fiber ?? 0,
+        ...(item.modifierLabel ? { modifierLabel: item.modifierLabel } : {}),
         per100g: { ...item.food.per100g },
         sourceText,
       }))
@@ -454,6 +529,7 @@ export function useNutritionStore() {
           protein: e.protein,
           carbs: e.carbs,
           fat: e.fat,
+          ...(typeof e.fiber === 'number' ? { fiber: e.fiber } : {}),
         })),
       }
       setTemplates((prev) => [created, ...prev])
@@ -512,7 +588,15 @@ export function useNutritionStore() {
       setFoodOverrides((prev) => upsertBuiltInOverride(prev, normalized))
     } else {
       setCustomFoods((prev) =>
-        prev.map((f) => (f.id === normalized.id ? { ...normalized, isCustom: true } : f)),
+        prev.map((f) =>
+          f.id === normalized.id
+            ? {
+                ...normalized,
+                isCustom: true,
+                source: normalized.isRecipe ? 'دستور پخت شخصی کاربر' : 'غذای ثبت‌شده توسط کاربر',
+              }
+            : f,
+        ),
       )
     }
   }, [])
@@ -530,11 +614,6 @@ export function useNutritionStore() {
     })
   }, [])
 
-  /**
-   * Non-destructively refreshes the built-in catalog from code while preserving BOTH
-   * user-created custom foods AND user edits (`foodOverrides`), unless `clearOverrides`
-   * is explicitly requested by the user.
-   */
   const resetDefaultFoods = useCallback((options?: { clearOverrides?: boolean }) => {
     if (options?.clearOverrides) {
       setFoodOverrides({})
@@ -578,16 +657,15 @@ export function useNutritionStore() {
         return { ok: false, error: analysis.error }
       }
 
-      // Automatically save a pre-import safety snapshot before applying changes
       const now = Date.now()
       const preEnvelope: PreImportSnapshotEnvelope = {
         savedAt: now,
         snapshot: snapshotRef.current,
       }
       const snapWrite = writeStorageJson(STORAGE_KEYS.preImportSnapshot, preEnvelope)
+      void idbSet(STORAGE_KEYS.preImportSnapshot, preEnvelope)
       if (snapWrite.ok) {
         setPreImportSavedAt(now)
-        void idbSet(STORAGE_KEYS.preImportSnapshot, preEnvelope)
       }
 
       const next = applyBackupBundle(snapshotRef.current, analysis.bundle, mode)
