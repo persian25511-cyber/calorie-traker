@@ -31,6 +31,7 @@ import {
   type MacroValues,
   type MealTemplate,
   type MealType,
+  type MicronutrientKey,
   type ParsedFoodItem,
 } from './types/nutrition'
 import { buildPersianDailyReport } from './utils/dailySummaryShare'
@@ -130,6 +131,7 @@ export function App() {
   const [mealType, setMealType] = useState<MealType>(() => getDefaultMealTypeForHour())
   const [prefillNewFoodName, setPrefillNewFoodName] = useState<string | null>(null)
   const [prefillNewFoodBarcode, setPrefillNewFoodBarcode] = useState<string | null>(null)
+  const [prefillNutrientFilter, setPrefillNutrientFilter] = useState<MicronutrientKey | null>(null)
   const [backupReminderDismissed, setBackupReminderDismissed] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimerRef = useRef<number | null>(null)
@@ -657,6 +659,7 @@ export function App() {
                 onDeleteTemplate={deleteMealTemplate}
                 onRequestAddCustomFood={handleRequestAddCustomFood}
                 onRequestAddBarcodeFood={handleRequestAddBarcodeFood}
+                onSaveFetchedBarcodeFood={addFood}
               />
 
               <OnboardingCard
@@ -686,6 +689,10 @@ export function App() {
                   onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                   onCopyDailyReport={handleCopyDailyReport}
                   onShareDailyImage={handleShareDailyImage}
+                  onExploreRichFoods={(key) => {
+                    setPrefillNutrientFilter(key)
+                    setActiveTab('foods')
+                  }}
                 />
               </div>
 
@@ -715,6 +722,10 @@ export function App() {
                 onAdjustWater={(delta) => adjustWater(selectedDateKey, delta)}
                 onCopyDailyReport={handleCopyDailyReport}
                 onShareDailyImage={handleShareDailyImage}
+                onExploreRichFoods={(key) => {
+                  setPrefillNutrientFilter(key)
+                  setActiveTab('foods')
+                }}
               />
             </div>
           </div>
@@ -741,6 +752,10 @@ export function App() {
                 showToast(`وزن ${formatFaNumber(w, 1)} کیلوگرم ثبت شد`)
               }}
               onDeleteWeight={deleteWeight}
+              onExploreRichFoods={(key) => {
+                setPrefillNutrientFilter(key)
+                setActiveTab('foods')
+              }}
             />
           </Suspense>
         )}
@@ -757,10 +772,12 @@ export function App() {
               foods={foods}
               prefillNewFoodName={prefillNewFoodName}
               prefillNewFoodBarcode={prefillNewFoodBarcode}
+              initialNutrientFilter={prefillNutrientFilter}
               onConsumePrefillName={() => {
                 setPrefillNewFoodName(null)
                 setPrefillNewFoodBarcode(null)
               }}
+              onConsumeNutrientFilter={() => setPrefillNutrientFilter(null)}
               onAddFood={handleAddFood}
               onUpdateFood={handleUpdateFood}
               onDeleteFood={handleDeleteFood}

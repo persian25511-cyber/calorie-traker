@@ -1,4 +1,10 @@
-import { MEAL_TYPE_LABELS, type LoggedFoodEntry } from '../types/nutrition'
+import {
+  getMealTypeLabels,
+  type FoodItem,
+  type LoggedFoodEntry,
+  type MealScheduleMode,
+} from '../types/nutrition'
+import { resolveEntryMicronutrients } from './micronutrients'
 import { dateFromKey, formatJalaliDate } from './persianFormat'
 
 function escapeCsvCell(value: string | number): string {
@@ -15,9 +21,17 @@ function escapeCsvCell(value: string | number): string {
 
 /**
  * Generates an Excel-compatible UTF-8 BOM CSV file of all logged meal entries
- * with Jalali dates, Persian meal labels, household units, and macros.
+ * with Jalali dates, schedule-aware Persian meal labels, household units, macros, fiber,
+ * and key micronutrients (Iron, Calcium, Sodium, Vitamin C, Vitamin D).
  */
-export function buildEntriesCsv(entries: LoggedFoodEntry[]): string {
+export function buildEntriesCsv(
+  entries: LoggedFoodEntry[],
+  foods: readonly FoodItem[] = [],
+  scheduleMode: MealScheduleMode = 'standard',
+): string {
+  const mealLabels = getMealTypeLabels(scheduleMode)
+  const foodById = new Map(foods.map((f) => [f.id, f]))
+
   const headers = [
     'تاریخ جلالی',
     'تاریخ میلادی',
@@ -30,22 +44,37 @@ export function buildEntriesCsv(entries: LoggedFoodEntry[]): string {
     'پروتئین (گرم)',
     'کربوهیدرات (گرم)',
     'چربی (گرم)',
+    'فیبر (گرم)',
+    'آهن (mg)',
+    'کلسیم (mg)',
+    'سدیم (mg)',
+    'ویتامین C (mg)',
+    'ویتامین D (mcg)',
   ]
 
   const sorted = [...entries].sort((a, b) => b.timestamp - a.timestamp)
-  const rows = sorted.map((e) => [
-    formatJalaliDate(dateFromKey(e.dateKey), 'full'),
-    e.dateKey,
-    MEAL_TYPE_LABELS[e.mealType],
-    e.foodName,
-    e.quantity,
-    e.unit,
-    e.totalGrams,
-    e.kcal,
-    e.protein,
-    e.carbs,
-    e.fat,
-  ])
+  const rows = sorted.map((e) => {
+    const micro = resolveEntryMicronutrients(e, foodById)
+    return [
+      formatJalaliDate(dateFromKey(e.dateKey), 'full'),
+      e.dateKey,
+      mealLabels[e.mealType],
+      e.foodName,
+      e.quantity,
+      e.unit,
+      e.totalGrams,
+      e.kcal,
+      e.protein,
+      e.carbs,
+      e.fat,
+      e.fiber ?? 0,
+      micro.ironMg,
+      micro.calciumMg,
+      micro.sodiumMg,
+      micro.vitaminCMg,
+      micro.vitaminDMcg,
+    ]
+  })
 
   const csvBody = [headers, ...rows]
     .map((row) => row.map(escapeCsvCell).join(','))

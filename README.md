@@ -1,6 +1,6 @@
 <div align="center">
 
-# کالری‌شمار روزمره | KaloriShomar `v1.2.0`
+# کالری‌شمار روزمره | KaloriShomar `v1.4.0`
 
 **ردیاب سریع، کاملاً آفلاین و هوشمند کالری، درشت‌مغذی، فیبر، آب و وزن برای غذاهای خانگی و بسته‌بندی ایرانی**
 *Fast, 100% offline-first, mobile-first Persian Calorie & Nutrition Tracker built for Iranian home-cooked meals and real kitchen units.*
@@ -19,11 +19,11 @@
 ## نسخه فارسی
 
 ### معرفی
-**کالری‌شمار روزمره (`v1.2.0`)** یک وب‌اپلیکیشن فوق‌سبک، متن‌باز (MIT) و **۱۰۰٪ آفلاین (Offline-First PWA)** ویژه فرهنگ غذایی ایران است. فونت فارسی (`Vazirmatn Variable`) به‌صورت محلی میزبانی می‌شود، نمودارها با **SVG بومی و صفر وابستگی خارجی** رندر می‌شوند و تمام داده‌ها با پشتوانهٔ دوگانه (`IndexedDB` + `localStorage`) صرفاً روی دستگاه خود کاربر ذخیره می‌گردند (**بدون ثبت‌نام و بدون هیچ اسکریپت ردیابی**).
+**کالری‌شمار روزمره (`v1.4.0`)** یک وب‌اپلیکیشن فوق‌سبک، متن‌باز (MIT) و **۱۰۰٪ آفلاین (Offline-First PWA)** ویژه فرهنگ غذایی ایران است. فونت فارسی (`Vazirmatn Variable`) به‌صورت محلی میزبانی می‌شود، نمودارها با **SVG بومی و صفر وابستگی خارجی** رندر می‌شوند و تمام داده‌ها با پشتوانهٔ دوگانه (`IndexedDB` + `localStorage`) صرفاً روی دستگاه خود کاربر ذخیره می‌گردند (**بدون ثبت‌نام و بدون هیچ اسکریپت ردیابی**).
 
 > **سلب مسئولیت سلامت:** این برنامه صرفاً یک ابزار آموزشی برای **برآورد تقریبی** کالری، درشت‌مغذی‌ها و فیبر است و جایگزین پزشک یا متخصص تغذیه نیست. محاسبه‌گر کالری (TDEE) فقط برای بزرگسالان **۱۸+** فعال است، برای اهداف دستی زیر `۱٬۲۰۰` کالری هشدار نرم سلامت نمایش می‌دهد و در شرایط بارداری، شیردهی، سن زیر ۱۸ سال یا سابقه اختلالات خوردن باید حتماً با متخصص مشورت شود.
 
-### امکانات کلیدی (`v1.2.0`)
+### امکانات کلیدی (`v1.4.0`)
 - **عملکرد فوق‌سریع و نمودارهای بومی SVG (حذف کامل `recharts`):**
   - جایگزینی کتابخانه سنگین نمودار با کامپوننت‌های SVG بومی واکنش‌گرا (`CalorieBarChart` و `WeightLineChart`) همراه با کنترل خودکار بودجه حجم باندل در CI (`npm run check:budget`).
 - **تکمیل خودکار آنی، ورودی صوتی فارسی و بارکدخوان سری `۶۲۶` ایران:**
@@ -84,9 +84,9 @@ npm run test:e2e                                           # تست E2E آفلا
 ## English Documentation
 
 ### Overview
-**KaloriShomar (کالری‌شمار روزمره) v1.2.0** is an ultra-lightweight, open-source (MIT), 100% offline-first Persian Calorie & Nutrition Tracker PWA built for Iranian home-cooked meals, supermarket barcodes (`626`), and real household units (`کفگیر`, `کف دست`, `لیوان`, `سیخ`, `کاسه`, `ملاقه`, `اسکوپ`).
+**KaloriShomar (کالری‌شمار روزمره) v1.4.0** is an ultra-lightweight, open-source (MIT), 100% offline-first Persian Calorie & Nutrition Tracker PWA built for Iranian home-cooked meals, supermarket barcodes (`626`), and real household units (`کفگیر`, `کف دست`, `لیوان`, `سیخ`, `کاسه`, `ملاقه`, `اسکوپ`).
 
-### Key Highlights (`v1.2.0`)
+### Key Highlights (`v1.4.0`)
 - **Zero-Dependency Native SVG Charts & CI Bundle Budget:** Replaced `recharts` (removing 39 packages) with responsive RTL native SVG charts (`CalorieBarChart`, `WeightLineChart`) enforced by `scripts/check-bundle-budget.mjs` in CI.
 - **Inline Autocomplete, Cooking Modifiers, Persian Voice & `626` Barcode Lookup:** Real-time trailing-segment autocomplete (`Tab` / tap), smart cooking preparation modifiers (`کم‌روغن`, `ایرفرایر`, `با کره`), `fa-IR` Web Speech dictation, and camera/manual `626` EAN-13 barcode lookup.
 - **Dietary Fiber, Ramadan/Fasting Mode, Editable Yield-Aware Recipes & Jalali Calendar:** Full fiber tracking across 322 foods, `سحری / افطاری` schedule mode with per-meal calorie budgets, editable multi-ingredient recipes with cooking weight yield (`ضریب پخت ٪`), interactive Shamsi monthly calendar picker, and arbitrary past-day meal copying.

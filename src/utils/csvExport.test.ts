@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_IRANIAN_FOODS } from '../data/iranianFoods'
 import type { LoggedFoodEntry } from '../types/nutrition'
 import { buildEntriesCsv } from './csvExport'
 
-describe('CSV Export & Formula Safety', () => {
-  it('generates UTF-8 BOM Persian CSV and neutralizes spreadsheet formula injection', () => {
+describe('CSV Export (with Fiber, Micronutrients & Schedule Labels) & Formula Safety', () => {
+  it('generates UTF-8 BOM Persian CSV with micronutrients, schedule labels, and formula injection defense', () => {
     const sampleEntries: LoggedFoodEntry[] = [
       {
         id: 'e1',
@@ -19,6 +20,7 @@ describe('CSV Export & Formula Safety', () => {
         protein: 20.4,
         carbs: 14.9,
         fat: 23,
+        fiber: 8.6,
       },
       {
         id: 'e2',
@@ -37,11 +39,14 @@ describe('CSV Export & Formula Safety', () => {
       },
     ]
 
-    const csv = buildEntriesCsv(sampleEntries)
+    const csv = buildEntriesCsv(sampleEntries, DEFAULT_IRANIAN_FOODS, 'ramadan')
     expect(csv.startsWith('\uFEFF')).toBe(true)
     expect(csv).toContain('تاریخ جلالی')
+    expect(csv).toContain('فیبر (گرم)')
+    expect(csv).toContain('آهن (mg)')
+    expect(csv).toContain('سدیم (mg)')
+    expect(csv).toContain('افطاری')
     expect(csv).toContain('قورمه‌سبزی')
-    expect(csv).toContain('ناهار')
     expect(csv).toContain("'=SUM(A1:A2)")
     expect(csv).not.toContain(',=SUM(A1:A2)')
   })

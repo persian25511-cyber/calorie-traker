@@ -1,5 +1,5 @@
 import {
-  MEAL_TYPE_LABELS,
+  getMealTypeLabels,
   MEAL_TYPE_ORDER,
   type LoggedFoodEntry,
   type MacroValues,
@@ -26,10 +26,11 @@ export interface WeeklyReportParams {
   avgProtein: number
   avgCarbs: number
   avgFat: number
+  avgFiber?: number
   days: Array<{ label: string; kcal: number }>
 }
 
-/** Formats a crisp Persian daily nutrition summary ready for copying/sharing. */
+/** Formats a crisp Persian daily nutrition summary ready for copying/sharing with dietitians or friends. */
 export function buildPersianDailyReport({
   appName,
   jalaliDateLabel,
@@ -38,6 +39,7 @@ export function buildPersianDailyReport({
   waterGlasses,
   entries,
 }: DailyReportParams): string {
+  const mealLabels = getMealTypeLabels(goals.scheduleMode)
   const remaining = goals.dailyKcal - consumed.kcal
   const balanceLine =
     remaining >= 0
@@ -52,6 +54,7 @@ export function buildPersianDailyReport({
     `پروتئین: ${formatFaNumber(consumed.protein, 1)} / ${formatFaNumber(goals.proteinGrams)} گرم`,
     `کربوهیدرات: ${formatFaNumber(consumed.carbs, 1)} / ${formatFaNumber(goals.carbsGrams)} گرم`,
     `چربی: ${formatFaNumber(consumed.fat, 1)} / ${formatFaNumber(goals.fatGrams)} گرم`,
+    `فیبر غذایی: ${formatFaNumber(consumed.fiber ?? 0, 1)} / ${formatFaNumber(goals.fiberGrams ?? 28)} گرم`,
     `آب مصرفی: ${formatFaNumber(waterGlasses)} از ${formatFaNumber(goals.waterGoalGlasses)} لیوان`,
   ]
 
@@ -61,7 +64,10 @@ export function buildPersianDailyReport({
       const group = entries.filter((e) => e.mealType === mealType)
       if (group.length === 0) continue
       const groupKcal = group.reduce((s, e) => s + e.kcal, 0)
-      lines.push(`• ${MEAL_TYPE_LABELS[mealType]} (${formatFaNumber(groupKcal)} کالری):`)
+      const groupProt = Math.round(group.reduce((s, e) => s + e.protein, 0) * 10) / 10
+      lines.push(
+        `• ${mealLabels[mealType]} (${formatFaNumber(groupKcal)} کالری · پروتئین ${formatFaNumber(groupProt, 1)}گ):`,
+      )
       for (const item of group) {
         lines.push(
           `  - ${item.foodName}: ${formatQuantityFa(item.quantity)} ${item.unit} (${formatFaNumber(item.kcal)} کالری)`,
@@ -75,12 +81,14 @@ export function buildPersianDailyReport({
 
 /** Formats a clean, non-pressuring 7-day Persian weekly nutrition summary. */
 export function buildPersianWeeklyReport(params: WeeklyReportParams): string {
+  const fiberSuffix =
+    params.avgFiber !== undefined ? ` · فیبر ${formatFaNumber(params.avgFiber, 1)}گ` : ''
   const lines: string[] = [
     `گزارش هفتگی ${params.appName} (${params.periodLabel})`,
     `────────────────────`,
     `میانگین روزانه: ~${formatFaNumber(params.avgKcal)} کالری (هدف: ${formatFaNumber(params.goalKcal)})`,
     `روزهای دارای ثبت: ${formatFaNumber(params.activeDaysCount)} از ۷ روز (${formatFaNumber(params.withinGoalDays)} روز در محدوده هدف)`,
-    `میانگین درشت‌مغذی‌ها: پروتئین ${formatFaNumber(params.avgProtein, 1)}گ · کربوهیدرات ${formatFaNumber(params.avgCarbs, 1)}گ · چربی ${formatFaNumber(params.avgFat, 1)}گ`,
+    `میانگین درشت‌مغذی‌ها: پروتئین ${formatFaNumber(params.avgProtein, 1)}گ · کربوهیدرات ${formatFaNumber(params.avgCarbs, 1)}گ · چربی ${formatFaNumber(params.avgFat, 1)}گ${fiberSuffix}`,
     '',
     'جزئیات روزهای هفته:',
     ...params.days.map(

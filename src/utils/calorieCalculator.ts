@@ -102,6 +102,7 @@ export function evaluateTdeeGoals(input: TdeeInput): TdeeEvaluation {
   const remainingKcal = Math.max(200, targetKcal - proteinGrams * 4 - fatGrams * 9)
   const carbsGrams = Math.round(remainingKcal / 4)
 
+  const fiberGrams = Math.max(22, Math.min(45, Math.round((targetKcal / 1000) * 14)))
   const waterGoalGlasses = Math.max(6, Math.min(14, Math.round((weight * 32) / 240)))
 
   return {
@@ -114,7 +115,10 @@ export function evaluateTdeeGoals(input: TdeeInput): TdeeEvaluation {
         proteinGrams,
         carbsGrams,
         fatGrams,
+        fiberGrams,
         waterGoalGlasses,
+        sex: input.sex,
+        ageYears: age,
       },
     },
   }

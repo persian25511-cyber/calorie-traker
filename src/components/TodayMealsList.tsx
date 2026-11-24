@@ -161,7 +161,7 @@ export function TodayMealsList({
               >
                 {availableCopyDates.map((dk) => (
                   <option key={dk} value={dk}>
-                    {formatCopyDayLabel(dk)} ({dk})
+                    {formatCopyDayLabel(dk)} — {formatJalaliDate(dateFromKey(dk), 'medium')}
                   </option>
                 ))}
               </select>
@@ -225,13 +225,20 @@ export function TodayMealsList({
                       <Icon className="w-3.5 h-3.5" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold text-zinc-100 leading-tight">
-                        {mealLabels[mealType]}
-                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-zinc-100 leading-tight">
+                          {mealLabels[mealType]}
+                        </h3>
+                        <span
+                          data-testid={`meal-protein-badge-${mealType}`}
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-sky-500/12 text-sky-400 tabular-nums-fa"
+                        >
+                          پروتئین {formatFaNumber(subtotalProtein, 1)}گ
+                        </span>
+                      </div>
                       <span className="text-[11px] text-zinc-400 tabular-nums-fa">
-                        {formatFaNumber(items.length)} مورد · پروتئین{' '}
-                        {formatFaNumber(subtotalProtein, 1)}گ · سهم پیشنهادی ~
-                        {formatFaNumber(suggestedMealBudget)} ک
+                        {formatFaNumber(items.length)} مورد · سهم پیشنهادی ~
+                        {formatFaNumber(suggestedMealBudget)} کالری
                       </span>
                     </div>
                   </div>

@@ -438,6 +438,22 @@ export function normalizeGoals(raw: Partial<UserGoals> | null | undefined): User
       raw.waterGoalGlasses >= 4
         ? Math.min(25, Math.round(raw.waterGoalGlasses))
         : DEFAULT_USER_GOALS.waterGoalGlasses,
-    scheduleMode: raw.scheduleMode === 'ramadan' ? 'ramadan' : 'standard',
+    scheduleMode:
+      raw.scheduleMode === 'ramadan' || raw.scheduleMode === 'fasting_16_8'
+        ? raw.scheduleMode
+        : 'standard',
+    ...(raw.sex === 'male' || raw.sex === 'female' ? { sex: raw.sex } : {}),
+    ...(typeof raw.ageYears === 'number' &&
+    Number.isFinite(raw.ageYears) &&
+    raw.ageYears >= 18 &&
+    raw.ageYears <= 100
+      ? { ageYears: Math.round(raw.ageYears) }
+      : {}),
+    ...(typeof raw.targetWeightKg === 'number' &&
+    Number.isFinite(raw.targetWeightKg) &&
+    raw.targetWeightKg >= 30 &&
+    raw.targetWeightKg <= 250
+      ? { targetWeightKg: Math.round(raw.targetWeightKg * 10) / 10 }
+      : {}),
   }
 }

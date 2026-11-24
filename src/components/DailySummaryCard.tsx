@@ -1,6 +1,12 @@
 import { Check, Copy, Droplets, ImageDown, Minus, Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FoodItem, LoggedFoodEntry, MacroValues, UserGoals } from '../types/nutrition'
+import type {
+  FoodItem,
+  LoggedFoodEntry,
+  MacroValues,
+  MicronutrientKey,
+  UserGoals,
+} from '../types/nutrition'
 import { computeMacroEnergySplit } from '../utils/micronutrients'
 import { formatFaNumber } from '../utils/persianFormat'
 import { MicronutrientPanel } from './MicronutrientPanel'
@@ -17,6 +23,7 @@ interface DailySummaryCardProps {
   onAdjustWater: (delta: number) => void
   onCopyDailyReport: () => Promise<boolean>
   onShareDailyImage?: () => Promise<void>
+  onExploreRichFoods?: (nutrientKey: MicronutrientKey) => void
 }
 
 type SummaryViewMode = 'overview' | 'macro_chart' | 'micronutrients'
@@ -32,6 +39,7 @@ export function DailySummaryCard({
   onAdjustWater,
   onCopyDailyReport,
   onShareDailyImage,
+  onExploreRichFoods,
 }: DailySummaryCardProps) {
   const [viewMode, setViewMode] = useState<SummaryViewMode>('overview')
   const [copied, setCopied] = useState(false)
@@ -46,6 +54,10 @@ export function DailySummaryCard({
   }, [])
 
   const macroSplit = useMemo(() => computeMacroEnergySplit(consumed, goals), [consumed, goals])
+  const userProfile = useMemo(
+    () => ({ sex: goals.sex, ageYears: goals.ageYears }),
+    [goals.ageYears, goals.sex],
+  )
 
   const ratio = goals.dailyKcal > 0 ? consumed.kcal / goals.dailyKcal : 0
   const clampedRatio = Math.min(1, Math.max(0, ratio))
@@ -55,8 +67,8 @@ export function DailySummaryCard({
   const waterTarget = goals.waterGoalGlasses || 8
   const waterPct = Math.min(100, Math.round((waterGlasses / waterTarget) * 100))
 
-  const size = 164
-  const strokeWidth = 12
+  const size = 140
+  const strokeWidth = 11
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const dashOffset = circumference * (1 - clampedRatio)
@@ -215,9 +227,9 @@ export function DailySummaryCard({
         </button>
       </div>
 
-      {/* Mode 1: Calorie Ring + 4 Macro/Fiber Bars */}
+      {/* Mode 1: Compact Side-by-Side Calorie Ring + 4 Macro/Fiber Bars (saves ~120px vertical space on mobile) */}
       {viewMode === 'overview' && (
-        <div className="flex flex-col sm:flex-row lg:flex-col items-center gap-5">
+        <div className="flex flex-row lg:flex-col items-center gap-4">
           <div className="relative flex items-center justify-center shrink-0">
             <svg
               width={size}
@@ -249,59 +261,59 @@ export function DailySummaryCard({
               />
             </svg>
 
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-2">
               <span
                 data-testid="consumed-kcal"
-                className={`text-3xl font-extrabold tracking-tight tabular-nums-fa leading-none ${
+                className={`text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums-fa leading-none ${
                   isOver ? 'text-amber-300' : 'text-zinc-50'
                 }`}
               >
                 {formatFaNumber(consumed.kcal)}
               </span>
-              <span className="text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
+              <span className="text-[10px] sm:text-[11px] text-zinc-400 mt-1 tabular-nums-fa">
                 از {formatFaNumber(goals.dailyKcal)} کالری
               </span>
               <span
                 data-testid="remaining-kcal"
-                className={`mt-2 text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums-fa ${
+                className={`mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full tabular-nums-fa ${
                   isOver
                     ? 'bg-amber-500/15 text-amber-300'
                     : 'bg-emerald-500/12 text-emerald-300'
                 }`}
               >
                 {isOver
-                  ? `${formatFaNumber(Math.abs(remaining))} بالاتر از هدف`
+                  ? `${formatFaNumber(Math.abs(remaining))} بالاتر`
                   : `${formatFaNumber(remaining)} مانده`}
               </span>
             </div>
           </div>
 
           {/* Compact Macro + Fiber Progress Bars with Caloric Share Badge */}
-          <div className="w-full space-y-3">
+          <div className="w-full min-w-0 space-y-2.5">
             {macros.map((m) => {
               const pct =
                 m.target > 0 ? Math.min(100, Math.round((m.consumed / m.target) * 100)) : 0
               return (
                 <div key={m.id} data-testid={`macro-bar-${m.id}`}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${m.dotColor}`} />
-                      <span className="font-medium text-zinc-200">{m.label}</span>
+                  <div className="flex items-center justify-between text-[11px] sm:text-xs mb-1 gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${m.dotColor}`} />
+                      <span className="font-medium text-zinc-200 truncate">{m.label}</span>
                       {m.pctOfEnergy !== null && macroSplit.hasMacroEnergy && (
-                        <span className="text-[10px] text-zinc-400 tabular-nums-fa">
-                          ({formatFaNumber(m.pctOfEnergy)}٪ انرژی)
+                        <span className="hidden sm:inline text-[10px] text-zinc-400 tabular-nums-fa">
+                          ({formatFaNumber(m.pctOfEnergy)}٪)
                         </span>
                       )}
                     </div>
-                    <div className="tabular-nums-fa text-zinc-400">
+                    <div className="tabular-nums-fa text-zinc-400 shrink-0">
                       <span className={`font-semibold ${m.textColor}`}>
                         {formatFaNumber(m.consumed, 1)}
                       </span>
-                      <span className="mx-1 text-zinc-600">/</span>
-                      <span>{formatFaNumber(m.target)} گرم</span>
+                      <span className="mx-0.5 text-zinc-600">/</span>
+                      <span>{formatFaNumber(m.target)}گ</span>
                     </div>
                   </div>
-                  <div className="h-2 rounded-full bg-[#242429] overflow-hidden">
+                  <div className="h-1.5 sm:h-2 rounded-full bg-[#242429] overflow-hidden">
                     <div
                       className={`h-full rounded-full ${m.barColor} transition-all duration-500 ease-out`}
                       style={{ width: `${pct}%` }}
@@ -342,6 +354,8 @@ export function DailySummaryCard({
             divisorDays={1}
             periodTitle={dayLabel}
             compact
+            userProfile={userProfile}
+            onExploreRichFoods={onExploreRichFoods}
           />
         </div>
       )}

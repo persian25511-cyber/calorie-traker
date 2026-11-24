@@ -641,8 +641,8 @@ export function useNutritionStore() {
   }, [foods])
 
   const exportEntriesCsv = useCallback((): string => {
-    return buildEntriesCsv(entries)
-  }, [entries])
+    return buildEntriesCsv(entries, foods, goals.scheduleMode ?? 'standard')
+  }, [entries, foods, goals.scheduleMode])
 
   const previewBackupJson = useCallback((rawJson: string): BackupAnalysisResult => {
     return analyzeBackupJson(rawJson)

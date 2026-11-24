@@ -12,8 +12,48 @@ import {
 
 export const MICRONUTRIENT_KEYS: readonly MicronutrientKey[] = MICRONUTRIENT_SPECS.map((s) => s.key)
 
+export interface MicronutrientUserProfile {
+  sex?: 'male' | 'female'
+  ageYears?: number
+}
+
 function round1(val: number): number {
   return Math.round(val * 10) / 10
+}
+
+/**
+ * Computes age- and sex-adjusted adult Daily Reference Values (IOM / NIH / WHO DRIs)
+ * when the user has configured their biological sex/age (e.g. Iron: 8 mg/day for adult men
+ * and women 51+, vs. 18 mg/day for women 18–50).
+ */
+export function getPersonalizedDailyRef(
+  spec: MicronutrientSpec,
+  profile?: MicronutrientUserProfile,
+): number {
+  const sex = profile?.sex
+  const age = profile?.ageYears ?? 30
+  if (!sex) return spec.dailyRef
+
+  switch (spec.key) {
+    case 'ironMg':
+      return sex === 'male' || age >= 51 ? 8 : 18
+    case 'zincMg':
+      return sex === 'male' ? 11 : 8
+    case 'magnesiumMg':
+      return sex === 'male' ? (age >= 31 ? 420 : 400) : age >= 31 ? 320 : 310
+    case 'potassiumMg':
+      return sex === 'male' ? 3400 : 2600
+    case 'vitaminCMg':
+      return sex === 'male' ? 90 : 75
+    case 'vitaminAMcg':
+      return sex === 'male' ? 900 : 700
+    case 'calciumMg':
+      return (sex === 'female' && age >= 51) || age >= 71 ? 1200 : 1000
+    case 'vitaminDMcg':
+      return age >= 71 ? 20 : 15
+    default:
+      return spec.dailyRef
+  }
 }
 
 /** Scales per-100g micronutrient values to `totalGrams`. */
@@ -68,7 +108,7 @@ export function sumMicronutrients(
 
 /**
  * Resolves micronutrients for any `LoggedFoodEntry`, seamlessly falling back to the catalog's
- * `per100g.micronutrients × totalGrams` for older entries logged before v1.3.0.
+ * `per100g.micronutrients × totalGrams` for older entries.
  */
 export function resolveEntryMicronutrients(
   entry: LoggedFoodEntry,
@@ -82,7 +122,13 @@ export function resolveEntryMicronutrients(
   return scaleMicronutrients(per100gMicro, entry.totalGrams)
 }
 
-export type MicronutrientStatus = 'good' | 'moderate' | 'low' | 'within_limit' | 'near_limit' | 'over_limit'
+export type MicronutrientStatus =
+  | 'good'
+  | 'moderate'
+  | 'low'
+  | 'within_limit'
+  | 'near_limit'
+  | 'over_limit'
 
 export interface MicronutrientContributor {
   foodName: string
@@ -91,9 +137,11 @@ export interface MicronutrientContributor {
 
 export interface EvaluatedMicronutrientItem {
   spec: MicronutrientSpec
+  /** Personalized (or general adult) daily reference benchmark */
+  effectiveDailyRef: number
   /** Daily consumed (or daily period average) amount */
   amount: number
-  /** Percentage of adult reference value (can exceed 100%) */
+  /** Percentage of effectiveDailyRef (can exceed 100%) */
   pctOfRef: number
   /** Clamped 0..100 for progress bars and radar polygon */
   clampedPct: number
@@ -104,6 +152,7 @@ export interface EvaluatedMicronutrientItem {
 
 export interface MicronutrientSummaryResult {
   hasAnyIntake: boolean
+  profileLabel: string
   values: MicronutrientValues
   items: EvaluatedMicronutrientItem[]
   /** Average % coverage across beneficial vitamins & minerals (excluding sodium limit) */
@@ -111,13 +160,14 @@ export interface MicronutrientSummaryResult {
 }
 
 /**
- * Aggregates micronutrients across `entries` (dividing by `divisorDays` for multi-day averages)
- * and ranks top contributing foods for every single vitamin & mineral.
+ * Aggregates micronutrients across `entries` (dividing by `divisorDays` for multi-day averages),
+ * applies optional sex/age DRI personalization, and ranks top contributing foods.
  */
 export function computeMicronutrientSummary(
   entries: readonly LoggedFoodEntry[],
   foodById: ReadonlyMap<string, FoodItem>,
   divisorDays = 1,
+  profile?: MicronutrientUserProfile,
 ): MicronutrientSummaryResult {
   const safeDivisor = Math.max(1, divisorDays)
   const totals: MicronutrientValues = { ...EMPTY_MICRONUTRIENTS }
@@ -151,11 +201,12 @@ export function computeMicronutrientSummary(
   let beneficialCount = 0
 
   const items: EvaluatedMicronutrientItem[] = MICRONUTRIENT_SPECS.map((spec) => {
+    const effectiveDailyRef = getPersonalizedDailyRef(spec, profile)
     const rawAvg = totals[spec.key] / safeDivisor
     const amount = spec.decimals === 1 ? round1(rawAvg) : Math.round(rawAvg)
     avgValues[spec.key] = amount
 
-    const pctOfRef = spec.dailyRef > 0 ? Math.round((rawAvg / spec.dailyRef) * 100) : 0
+    const pctOfRef = effectiveDailyRef > 0 ? Math.round((rawAvg / effectiveDailyRef) * 100) : 0
     const clampedPct = Math.min(100, Math.max(0, pctOfRef))
 
     let status: MicronutrientStatus
@@ -190,7 +241,8 @@ export function computeMicronutrientSummary(
     const topContributors: MicronutrientContributor[] = Array.from(contribMaps[spec.key].entries())
       .map(([foodName, sumAmount]) => ({
         foodName,
-        amount: spec.decimals === 1 ? round1(sumAmount / safeDivisor) : Math.round(sumAmount / safeDivisor),
+        amount:
+          spec.decimals === 1 ? round1(sumAmount / safeDivisor) : Math.round(sumAmount / safeDivisor),
       }))
       .filter((c) => c.amount > 0)
       .sort((a, b) => b.amount - a.amount)
@@ -198,6 +250,7 @@ export function computeMicronutrientSummary(
 
     return {
       spec,
+      effectiveDailyRef,
       amount,
       pctOfRef,
       clampedPct,
@@ -207,8 +260,16 @@ export function computeMicronutrientSummary(
     }
   })
 
+  const profileLabel =
+    profile?.sex === 'male'
+      ? 'مرجع شخصی‌سازی‌شده (آقا)'
+      : profile?.sex === 'female'
+        ? 'مرجع شخصی‌سازی‌شده (خانم)'
+        : 'مرجع عمومی بزرگسال'
+
   return {
     hasAnyIntake: entries.length > 0,
+    profileLabel,
     values: avgValues,
     items,
     overallBalancePct: beneficialCount > 0 ? Math.round(beneficialPctSum / beneficialCount) : 0,

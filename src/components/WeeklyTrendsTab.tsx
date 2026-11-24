@@ -19,6 +19,7 @@ import {
   getMealTypeLabels,
   type FoodItem,
   type LoggedFoodEntry,
+  type MicronutrientKey,
   type UserGoals,
   type WeightEntry,
 } from '../types/nutrition'
@@ -54,6 +55,7 @@ interface WeeklyTrendsTabProps {
   onSelectDate: (dateKey: string) => void
   onUpsertWeight: (dateKey: string, weightKg: number) => void
   onDeleteWeight: (dateKey: string) => void
+  onExploreRichFoods?: (nutrientKey: MicronutrientKey) => void
 }
 
 export function WeeklyTrendsTab({
@@ -66,6 +68,7 @@ export function WeeklyTrendsTab({
   onSelectDate,
   onUpsertWeight,
   onDeleteWeight,
+  onExploreRichFoods,
 }: WeeklyTrendsTabProps) {
   const [rangeDays, setRangeDays] = useState<7 | 30>(7)
   const [weightInput, setWeightInput] = useState('')
@@ -558,6 +561,8 @@ export function WeeklyTrendsTab({
           foods={foods}
           divisorDays={Math.max(1, stats.activeDaysCount)}
           periodTitle={`میانگین روزانه در ${formatFaNumber(stats.activeDaysCount)} روز فعال`}
+          userProfile={{ sex: goals.sex, ageYears: goals.ageYears }}
+          onExploreRichFoods={onExploreRichFoods}
         />
       </section>
 
@@ -631,7 +636,7 @@ export function WeeklyTrendsTab({
         )}
       </section>
 
-      {/* Weight Tracking & Native SVG Progress Chart */}
+      {/* Weight Tracking & Native SVG Progress Chart (with 7-Day Moving Average & Target Weight) */}
       <section
         className="card-surface rounded-2xl p-4 sm:p-5 space-y-4"
         aria-label="ثبت وزن و نمودار روند"
@@ -643,14 +648,14 @@ export function WeeklyTrendsTab({
               <Scale className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">ثبت اختیاری وزن و روند کلی</h2>
+              <h2 className="text-sm font-semibold text-zinc-100">ثبت اختیاری وزن و میانگین متحرک</h2>
               <p className="text-[11px] text-zinc-400 leading-relaxed">
                 {latestWeight
                   ? `آخرین ثبت: ${formatFaNumber(latestWeight.weightKg, 1)} کیلوگرم${
                       weightDelta !== null
                         ? ` (تغییر نسبت به ابتدای دوره: ${weightDelta > 0 ? '+' : ''}${formatFaNumber(weightDelta, 1)} ک‌گ)`
                         : ''
-                    } — نوسان روزانه آب بدن طبیعی است`
+                    } — منحنی سبز نوسان روزانه آب بدن را هموار می‌کند`
                   : 'نوسان روزانه وزن طبیعی است؛ در صورت تمایل روند چند هفته‌ای را دنبال کنید'}
               </p>
             </div>
@@ -680,7 +685,9 @@ export function WeeklyTrendsTab({
           </form>
         </div>
 
-        {weightChartPoints.length >= 2 && <WeightLineChart points={weightChartPoints} />}
+        {weightChartPoints.length >= 2 && (
+          <WeightLineChart points={weightChartPoints} targetWeightKg={goals.targetWeightKg} />
+        )}
 
         {weightChartPoints.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">

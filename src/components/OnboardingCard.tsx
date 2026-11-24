@@ -131,10 +131,11 @@ export function OnboardingCard({
             type="button"
             id="dismiss-onboarding-btn"
             onClick={() => updateState({ dismissed: true })}
-            aria-label="بستن راهنمای شروع"
-            className="text-zinc-400 hover:text-zinc-200 p-1"
+            aria-label="بستن دائمی راهنمای شروع"
+            className="inline-flex items-center gap-1 rounded-lg bg-[#1E1E22] hover:bg-[#282830] text-zinc-300 px-2 py-1 text-[11px]"
           >
-            <X className="w-3.5 h-3.5" />
+            <span>بستن</span>
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>

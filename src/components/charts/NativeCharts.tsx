@@ -1,6 +1,5 @@
 import { useId, useState } from 'react'
-import type { EvaluatedMicronutrientItem } from '../../utils/micronutrients'
-import type { MacroEnergySplit } from '../../utils/micronutrients'
+import type { EvaluatedMicronutrientItem, MacroEnergySplit } from '../../utils/micronutrients'
 import { formatFaNumber } from '../../utils/persianFormat'
 
 export interface CalorieBarPoint {
@@ -25,8 +24,8 @@ interface CalorieBarChartProps {
 }
 
 /**
- * Lightweight, dependency-free responsive SVG Calorie Bar Chart (replaces 455 KB Recharts bundle).
- * Supports 7-day & 30-day modes, goal reference line, keyboard/touch tooltips, and click-to-jump.
+ * Lightweight, dependency-free responsive SVG Calorie Bar Chart.
+ * Uses CSS design tokens (`--chart-label`) so both Dark & Light themes maintain WCAG AA contrast.
  */
 export function CalorieBarChart({
   data,
@@ -71,7 +70,6 @@ export function CalorieBarChart({
         role="img"
         aria-label="نمودار میله‌ای روند کالری"
       >
-        {/* Horizontal Grid Lines & Y-Axis Ticks */}
         {yTicks.map((tick) => {
           const y = yFor(tick)
           return (
@@ -88,7 +86,7 @@ export function CalorieBarChart({
                 x={padLeft - 8}
                 y={y + 4}
                 textAnchor="end"
-                fill="#A1A1AA"
+                fill="var(--chart-label)"
                 fontSize="11"
                 fontFamily="Vazirmatn Variable, sans-serif"
               >
@@ -98,7 +96,6 @@ export function CalorieBarChart({
           )
         })}
 
-        {/* Daily Goal Dashed Reference Line */}
         <line
           x1={padLeft}
           x2={W - padRight}
@@ -109,7 +106,6 @@ export function CalorieBarChart({
           strokeWidth="1.5"
         />
 
-        {/* Bars & X-Axis Labels */}
         {data.map((entry, idx) => {
           const cx = padLeft + idx * slotW + slotW / 2
           const barH =
@@ -146,7 +142,7 @@ export function CalorieBarChart({
                 y={padTop}
                 width={slotW}
                 height={plotH}
-                fill={isHovered ? 'rgba(16, 185, 129, 0.07)' : 'transparent'}
+                fill={isHovered ? 'rgba(16, 185, 129, 0.08)' : 'transparent'}
                 rx="6"
               />
               <rect
@@ -162,7 +158,7 @@ export function CalorieBarChart({
                   x={cx}
                   y={H - 8}
                   textAnchor="middle"
-                  fill={entry.isToday ? '#34D399' : '#A1A1AA'}
+                  fill={entry.isToday ? '#10B981' : 'var(--chart-label)'}
                   fontSize="11"
                   fontWeight={entry.isToday ? '700' : '400'}
                   fontFamily="Vazirmatn Variable, sans-serif"
@@ -175,7 +171,6 @@ export function CalorieBarChart({
         })}
       </svg>
 
-      {/* Floating RTL Persian Tooltip */}
       {activePoint && (
         <div
           dir="rtl"
@@ -230,144 +225,215 @@ export interface WeightLinePoint {
 
 interface WeightLineChartProps {
   points: WeightLinePoint[]
+  targetWeightKg?: number
 }
 
 /**
- * Lightweight, dependency-free SVG Weight Trend Line Chart with area fill & interactive dots.
+ * SVG Weight Trend Chart with daily points, smoothed 7-point Moving Average curve
+ * (to filter out daily water-weight noise), and optional Target Weight reference line.
  */
-export function WeightLineChart({ points }: WeightLineChartProps) {
+export function WeightLineChart({ points, targetWeightKg }: WeightLineChartProps) {
   const gradId = useId()
   const [activeIdx, setActiveIdx] = useState<number | null>(null)
 
   if (points.length < 2) return null
 
   const W = 640
-  const H = 175
+  const H = 185
   const padLeft = 46
   const padRight = 16
-  const padTop = 16
-  const padBottom = 28
+  const padTop = 18
+  const padBottom = 30
   const plotW = W - padLeft - padRight
   const plotH = H - padTop - padBottom
 
-  const weights = points.map((p) => p.weightKg)
-  const minW = Math.floor(Math.min(...weights) - 1)
-  const maxW = Math.ceil(Math.max(...weights) + 1)
+  const movingAvgValues = points.map((_, idx) => {
+    const start = Math.max(0, idx - 6)
+    const win = points.slice(start, idx + 1)
+    const sum = win.reduce((s, p) => s + p.weightKg, 0)
+    return Math.round((sum / win.length) * 10) / 10
+  })
+
+  const allValues = [
+    ...points.map((p) => p.weightKg),
+    ...(targetWeightKg && targetWeightKg >= 30 ? [targetWeightKg] : []),
+  ]
+  const minW = Math.floor(Math.min(...allValues) - 1)
+  const maxW = Math.ceil(Math.max(...allValues) + 1)
   const span = Math.max(2, maxW - minW)
 
   const xFor = (idx: number) => padLeft + (idx / (points.length - 1)) * plotW
   const yFor = (val: number) => padTop + plotH - ((val - minW) / span) * plotH
 
-  const coords = points.map((p, i) => ({ x: xFor(i), y: yFor(p.weightKg), pt: p }))
+  const coords = points.map((p, i) => ({
+    x: xFor(i),
+    y: yFor(p.weightKg),
+    maY: yFor(movingAvgValues[i]),
+    maVal: movingAvgValues[i],
+    pt: p,
+  }))
+
   const linePath = coords
     .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
+    .join(' ')
+  const maPath = coords
+    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.maY.toFixed(1)}`)
     .join(' ')
   const areaPath = `${linePath} L ${coords[coords.length - 1].x.toFixed(1)} ${padTop + plotH} L ${coords[0].x.toFixed(1)} ${padTop + plotH} Z`
 
   const yTicks = [minW, Math.round(((minW + maxW) / 2) * 10) / 10, maxW]
   const activeCoord = activeIdx !== null ? coords[activeIdx] ?? null : null
+  const targetY =
+    targetWeightKg && targetWeightKg >= 30 ? yFor(targetWeightKg) : null
 
   return (
-    <div
-      dir="ltr"
-      className="relative w-full h-44 select-none"
-      data-testid="weight-progress-chart"
-      onMouseLeave={() => setActiveIdx(null)}
-    >
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full h-full overflow-visible"
-        role="img"
-        aria-label="نمودار خطی روند وزن"
+    <div className="space-y-2">
+      <div
+        dir="ltr"
+        className="relative w-full h-48 select-none"
+        data-testid="weight-progress-chart"
+        onMouseLeave={() => setActiveIdx(null)}
       >
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.24" />
-            <stop offset="100%" stopColor="#38BDF8" stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full h-full overflow-visible"
+          role="img"
+          aria-label="نمودار خطی روند وزن و میانگین متحرک ۷ روزه"
+        >
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#38BDF8" stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
 
-        {yTicks.map((tick) => {
-          const y = yFor(tick)
-          return (
-            <g key={tick}>
-              <line
-                x1={padLeft}
-                x2={W - padRight}
-                y1={y}
-                y2={y}
-                stroke="var(--chart-grid)"
-                strokeDasharray="3 3"
-              />
-              <text
-                x={padLeft - 8}
-                y={y + 4}
-                textAnchor="end"
-                fill="#A1A1AA"
-                fontSize="11"
-                fontFamily="Vazirmatn Variable, sans-serif"
-              >
-                {formatFaNumber(tick, 1)}
-              </text>
-            </g>
-          )
-        })}
-
-        <path d={areaPath} fill={`url(#${gradId})`} />
-        <path
-          d={linePath}
-          fill="none"
-          stroke="#38BDF8"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {coords.map((c, idx) => {
-          const showTick =
-            points.length <= 7 || idx === 0 || idx === points.length - 1 || idx % 4 === 0
-          return (
-            <g
-              key={c.pt.dateKey}
-              className="cursor-pointer"
-              onMouseEnter={() => setActiveIdx(idx)}
-              onClick={() => setActiveIdx(idx)}
-            >
-              <circle cx={c.x} cy={c.y} r={12} fill="transparent" />
-              <circle
-                cx={c.x}
-                cy={c.y}
-                r={activeIdx === idx ? 6 : 4}
-                fill={activeIdx === idx ? '#7DD3FC' : '#38BDF8'}
-              />
-              {showTick && (
+          {yTicks.map((tick) => {
+            const y = yFor(tick)
+            return (
+              <g key={tick}>
+                <line
+                  x1={padLeft}
+                  x2={W - padRight}
+                  y1={y}
+                  y2={y}
+                  stroke="var(--chart-grid)"
+                  strokeDasharray="3 3"
+                />
                 <text
-                  x={c.x}
-                  y={H - 6}
-                  textAnchor="middle"
-                  fill="#A1A1AA"
-                  fontSize="10.5"
+                  x={padLeft - 8}
+                  y={y + 4}
+                  textAnchor="end"
+                  fill="var(--chart-label)"
+                  fontSize="11"
                   fontFamily="Vazirmatn Variable, sans-serif"
                 >
-                  {c.pt.jalaliShort}
+                  {formatFaNumber(tick, 1)}
                 </text>
-              )}
-            </g>
-          )
-        })}
-      </svg>
+              </g>
+            )
+          })}
 
-      {activeCoord && (
-        <div
-          dir="rtl"
-          className="pointer-events-none absolute top-2 right-3 rounded-xl bg-[var(--bg-surface)]/95 border border-[var(--border-elevated)] px-3 py-1.5 shadow-xl text-xs tabular-nums-fa"
-        >
-          <div className="text-zinc-400 text-[11px]">{activeCoord.pt.jalaliFull}</div>
-          <div className="text-sky-400 font-bold">
-            {formatFaNumber(activeCoord.pt.weightKg, 1)} کیلوگرم
+          {/* Optional Target Body Weight Reference Line */}
+          {targetY !== null && (
+            <line
+              x1={padLeft}
+              x2={W - padRight}
+              y1={targetY}
+              y2={targetY}
+              stroke="#F59E0B"
+              strokeDasharray="5 4"
+              strokeWidth="1.5"
+            />
+          )}
+
+          <path d={areaPath} fill={`url(#${gradId})`} />
+          {/* Daily Weight Line */}
+          <path
+            d={linePath}
+            fill="none"
+            stroke="#38BDF8"
+            strokeWidth="2"
+            strokeOpacity="0.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Smoothed 7-Point Moving Average Trendline */}
+          <path
+            d={maPath}
+            fill="none"
+            stroke="#10B981"
+            strokeWidth="2.5"
+            strokeDasharray="6 3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {coords.map((c, idx) => {
+            const showTick =
+              points.length <= 7 || idx === 0 || idx === points.length - 1 || idx % 4 === 0
+            return (
+              <g
+                key={c.pt.dateKey}
+                className="cursor-pointer"
+                onMouseEnter={() => setActiveIdx(idx)}
+                onClick={() => setActiveIdx(idx)}
+              >
+                <circle cx={c.x} cy={c.y} r={12} fill="transparent" />
+                <circle
+                  cx={c.x}
+                  cy={c.y}
+                  r={activeIdx === idx ? 6 : 3.8}
+                  fill={activeIdx === idx ? '#7DD3FC' : '#38BDF8'}
+                />
+                {showTick && (
+                  <text
+                    x={c.x}
+                    y={H - 6}
+                    textAnchor="middle"
+                    fill="var(--chart-label)"
+                    fontSize="10.5"
+                    fontFamily="Vazirmatn Variable, sans-serif"
+                  >
+                    {c.pt.jalaliShort}
+                  </text>
+                )}
+              </g>
+            )
+          })}
+        </svg>
+
+        {activeCoord && (
+          <div
+            dir="rtl"
+            className="pointer-events-none absolute top-2 right-3 rounded-xl bg-[var(--bg-surface)]/95 border border-[var(--border-elevated)] px-3 py-1.5 shadow-xl text-xs tabular-nums-fa space-y-0.5"
+          >
+            <div className="text-zinc-400 text-[11px]">{activeCoord.pt.jalaliFull}</div>
+            <div className="text-sky-400 font-bold">
+              وزن ثبت‌شده: {formatFaNumber(activeCoord.pt.weightKg, 1)} ک‌گ
+            </div>
+            <div className="text-emerald-400 text-[11px]">
+              میانگین متحرک: {formatFaNumber(activeCoord.maVal, 1)} ک‌گ
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-4 text-[11px] text-zinc-400 px-1 tabular-nums-fa">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> وزن روزانه
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-4 h-0.5 bg-emerald-400 inline-block" /> میانگین متحرک ۷ نوبت (بدون نوسان
+          آب)
+        </span>
+        {targetWeightKg && targetWeightKg >= 30 && (
+          <span className="inline-flex items-center gap-1.5 text-amber-300">
+            <span className="w-4 h-0.5 bg-amber-400 inline-block" /> وزن هدف:{' '}
+            {formatFaNumber(targetWeightKg, 1)} ک‌گ
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -382,10 +448,6 @@ interface MacroDonutChartProps {
   compact?: boolean
 }
 
-/**
- * Interactive multi-segment SVG Macronutrient Energy Donut Chart.
- * Displays Atwater caloric contribution (%) of Protein, Carbs, and Fat vs. configured Goals.
- */
 export function MacroDonutChart({
   split,
   proteinGrams,
@@ -454,7 +516,6 @@ export function MacroDonutChart({
       data-testid="macro-donut-chart"
       className={`flex flex-col ${compact ? 'items-center gap-3.5' : 'sm:flex-row items-center gap-5'}`}
     >
-      {/* Donut Ring */}
       <div
         className="relative flex items-center justify-center shrink-0 select-none"
         onMouseLeave={() => setSelectedId(null)}
@@ -522,7 +583,6 @@ export function MacroDonutChart({
         </div>
       </div>
 
-      {/* Interactive Legend + Actual vs Goal % */}
       <div className="w-full flex-1 space-y-2">
         {segments.map((seg) => {
           const active = selectedId === seg.id
@@ -555,8 +615,7 @@ export function MacroDonutChart({
           )
         })}
 
-        {/* Fiber Summary Strip */}
-        <div className="rounded-xl px-3 py-2 bg-[#161A14] border border-lime-500/20 flex items-center justify-between text-xs tabular-nums-fa">
+        <div className="rounded-xl px-3 py-2 bg-[#161A14] border border-lime-500/25 flex items-center justify-between text-xs tabular-nums-fa">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-lime-400 shrink-0" />
             <span className="font-semibold text-zinc-200">فیبر غذایی</span>
@@ -579,9 +638,6 @@ interface MacroStackedBarChartProps {
   onSelectDate?: (dateKey: string) => void
 }
 
-/**
- * Responsive SVG Stacked Daily Macronutrient Energy Bar Chart (Protein + Carbs + Fat kcal per day).
- */
 export function MacroStackedBarChart({
   data,
   rangeDays,
@@ -646,7 +702,7 @@ export function MacroStackedBarChart({
                 x={padLeft - 6}
                 y={y + 4}
                 textAnchor="end"
-                fill="#A1A1AA"
+                fill="var(--chart-label)"
                 fontSize="10.5"
                 fontFamily="Vazirmatn Variable, sans-serif"
               >
@@ -696,7 +752,6 @@ export function MacroStackedBarChart({
                 />
               ) : (
                 <>
-                  {/* Bottom: Protein (Sky) */}
                   <rect
                     x={cx - barW / 2}
                     y={baseBottom - protH}
@@ -704,7 +759,6 @@ export function MacroStackedBarChart({
                     height={protH}
                     fill="#38BDF8"
                   />
-                  {/* Middle: Carbs (Amber) */}
                   <rect
                     x={cx - barW / 2}
                     y={baseBottom - protH - carbH}
@@ -712,7 +766,6 @@ export function MacroStackedBarChart({
                     height={carbH}
                     fill="#FBBF24"
                   />
-                  {/* Top: Fat (Rose) */}
                   <rect
                     x={cx - barW / 2}
                     y={baseBottom - protH - carbH - fatH}
@@ -728,7 +781,7 @@ export function MacroStackedBarChart({
                   x={cx}
                   y={H - 8}
                   textAnchor="middle"
-                  fill={d.isToday ? '#34D399' : '#A1A1AA'}
+                  fill={d.isToday ? '#10B981' : 'var(--chart-label)'}
                   fontSize="10.5"
                   fontWeight={d.isToday ? '700' : '400'}
                   fontFamily="Vazirmatn Variable, sans-serif"
@@ -773,10 +826,6 @@ interface MicronutrientRadarChartProps {
   onSelectKey?: (key: string) => void
 }
 
-/**
- * 9-Axis SVG Spider / Radar Chart visualizing beneficial Vitamin & Mineral % Daily Value coverage.
- * Clamps polygon radius at 100% DV so balanced nutrition forms a full symmetric web.
- */
 export function MicronutrientRadarChart({
   items,
   selectedKey,
@@ -818,7 +867,6 @@ export function MicronutrientRadarChart({
         role="img"
         aria-label="نمودار راداری پوشش ویتامین‌ها و املاح معدنی"
       >
-        {/* Concentric Web Polygons */}
         {rings.map((ringPct) => {
           const pts = radarItems
             .map((_, idx) => {
@@ -838,7 +886,6 @@ export function MicronutrientRadarChart({
           )
         })}
 
-        {/* Radial Spokes */}
         {radarItems.map((it, idx) => {
           const outer = pointAt(idx, 100)
           return (
@@ -854,7 +901,6 @@ export function MicronutrientRadarChart({
           )
         })}
 
-        {/* Filled Nutrient Coverage Polygon */}
         <polygon
           points={polygonStr}
           fill="rgba(16, 185, 129, 0.22)"
@@ -863,7 +909,6 @@ export function MicronutrientRadarChart({
           strokeLinejoin="round"
         />
 
-        {/* Axis Vertex Dots & Clickable Persian Labels */}
         {radarItems.map((it, idx) => {
           const pt = dataPoints[idx]
           const ang = angleFor(idx)
@@ -883,17 +928,17 @@ export function MicronutrientRadarChart({
                 r={isSelected ? 5 : 3.5}
                 fill={
                   it.status === 'good'
-                    ? '#34D399'
+                    ? '#10B981'
                     : it.status === 'moderate'
-                      ? '#FBBF24'
-                      : '#A1A1AA'
+                      ? '#F59E0B'
+                      : 'var(--chart-label)'
                 }
               />
               <text
                 x={lx}
                 y={ly + 3}
                 textAnchor="middle"
-                fill={isSelected ? '#34D399' : '#D4D4D8'}
+                fill={isSelected ? '#10B981' : 'var(--chart-label-strong)'}
                 fontSize="9.5"
                 fontWeight={isSelected ? '700' : '500'}
                 fontFamily="Vazirmatn Variable, sans-serif"

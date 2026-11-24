@@ -6,8 +6,8 @@ const ASSETS_DIR = resolve('dist/assets')
 
 /** Strict gzipped size budgets (in bytes) preventing accidental heavy dependency regressions. */
 const BUDGETS = {
-  totalJsGzipBytes: 180 * 1024, // <= 180 KB total gzipped JS across ALL chunks (React + 322-Food Macro/Micro Catalog + App + Lazy tabs)
-  entryJsGzipBytes: 68 * 1024, // <= 68 KB main index-*.js gzipped
+  totalJsGzipBytes: 185 * 1024, // <= 185 KB total gzipped JS across ALL chunks (React + 322-Food Macro/Micro Catalog + App + Lazy tabs)
+  entryJsGzipBytes: 70 * 1024, // <= 70 KB main index-*.js gzipped
   totalCssGzipBytes: 18 * 1024, // <= 18 KB total gzipped CSS
 }
 

@@ -4,6 +4,20 @@ All notable changes to **KaloriShomar (کالری‌شمار روزمره)** are
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-24
+
+### Added & Improved
+- **Complete Light Mode Design Tokens & SVG Contrast (#1):** Replaced hardcoded dark surfaces and SVG axis colors with theme-aware CSS variables (`--chart-label`, `--chart-label-strong`, and full Light Mode surface/border overrides in `src/index.css`) for crisp WCAG AA contrast in daylight.
+- **Sex- & Age-Personalized Micronutrient DRIs + Dynamic TDEE Fiber (#2):** Added `getPersonalizedDailyRef` (`8 mg` Iron for adult men & women 51+ vs. `18 mg` for women 18–50; adjusted Zinc, Magnesium, Potassium, Calcium, Vitamin A/C/D) and automatic `14g / 1000 kcal` fiber calculation in `evaluateTdeeGoals`.
+- **Composite Iranian Dish Expander & Low-Sodium Modifier (#3):** Added `expandCompositeDishSegment` (`چلوکباب کوبیده`, `چلوجوجه`, `چلوکباب برگ`, `چلوقورمه`, `چلوقیمه`, `چلوفسنجان`, `نون و پنیر و گردو`) and `کم‌نمک / بی‌نمک` modifier (`-65%` sodium, combinable with `کم‌روغن`).
+- **Modular Settings Architecture & Category Navigation (#4):** Split the 1,649-line `SettingsTab.tsx` into 4 focused modules under `src/components/settings/*` with a 1-tap section filter bar (`همه بخش‌ها | اهداف و محاسبه‌گر | پشتیبان و داده‌ها | ظاهر، یادآور و نصب | منابع و بازخورد`).
+- **7-Point Moving Average & Target Weight Line + Per-Meal Protein Badges (#5):** Upgraded `WeightLineChart` with a smoothed Moving Average trendline (filtering out daily water noise) and optional `targetWeightKg` reference line, and added sky-blue per-meal protein badges in `TodayMealsList`.
+- **Nutritional Smart Filters & 1-Tap Rich Food Explorer (#6):** Added `پروتئین بالا`, `فیبر بالا`, `غنی از آهن / کلسیم / پتاسیم / ویتامین C / D`, `کم‌سدیم`, and `کم‌کالری` filters/sorting in `FoodDatabaseTab` with direct 1-tap navigation from any micronutrient in `MicronutrientPanel`.
+- **Enriched Medical/Dietitian CSV & Share Reports (#7):** Added Fiber, Iron, Calcium, Sodium, Vitamin C, Vitamin D, per-meal protein, and schedule-aware meal labels (`سحری/افطاری` & `فستینگ ۱۶/۸`) to `buildEntriesCsv` and `dailySummaryShare.ts`.
+- **Mobile Home Ergonomics & Pure Jalali Dates (#8):** Switched `DailySummaryCard` mobile ring + macro bars to a compact side-by-side row (saving ~120px vertical scroll), labeled the permanent onboarding dismiss button, and replaced raw Gregorian dates in meal copy dropdowns with pure Jalali dates.
+- **Opt-In Privacy-Preserving `OpenFoodFacts` Barcode Lookup & Header Policy Fix (#9):** Added explicit user-initiated online barcode lookup in `VoiceAndBarcodeControls` (with 1-click permanent save to local offline catalog) and updated `Permissions-Policy` (`camera=(self), microphone=(self)`) + `connect-src` across `vercel.json`, `public/_headers`, and `Caddyfile`.
+- **Intermittent Fasting (`16:8`) Schedule Mode (#10):** Added `'fasting_16_8'` (`وعده اول / وعده اصلی / وعده پایانی پنجره`) alongside `standard` and `ramadan`.
+
 ## [1.3.0] - 2026-11-24
 
 ### Added

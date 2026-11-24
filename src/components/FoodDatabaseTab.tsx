@@ -1,10 +1,15 @@
-import { ChefHat, ExternalLink, Info, Plus, Search, Utensils, X } from 'lucide-react'
+import { ChefHat, ExternalLink, Info, Plus, Search, Sparkles, Utensils, X } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { buildMissingFoodIssueUrl } from '../config/feedback'
 import { CATALOG_VERSION, NUTRITION_DATA_SOURCES } from '../data/iranianFoods'
 import { useFocusTrap } from '../hooks/useFocusTrap'
-import { FOOD_CATEGORY_LABELS, type FoodItem } from '../types/nutrition'
+import {
+  FOOD_CATEGORY_LABELS,
+  MICRONUTRIENT_SPECS,
+  type FoodItem,
+  type MicronutrientKey,
+} from '../types/nutrition'
 import { matchesFoodSearch } from '../utils/persianFoodParser'
 import { formatFaNumber } from '../utils/persianFormat'
 import { FoodCard } from './foodDatabase/FoodCard'
@@ -19,11 +24,28 @@ import {
 import { RecipeBuilderForm } from './foodDatabase/RecipeBuilderForm'
 import { SingleFoodForm } from './foodDatabase/SingleFoodForm'
 
+export type NutrientSmartFilter = 'none' | 'high_protein' | 'low_kcal' | 'high_fiber' | MicronutrientKey
+
+const NUTRIENT_SMART_FILTERS: ReadonlyArray<{ id: NutrientSmartFilter; label: string }> = [
+  { id: 'none', label: 'ترتیب پیش‌فرض' },
+  { id: 'high_protein', label: 'پروتئین بالا' },
+  { id: 'high_fiber', label: 'فیبر بالا' },
+  { id: 'ironMg', label: 'غنی از آهن' },
+  { id: 'calciumMg', label: 'غنی از کلسیم' },
+  { id: 'potassiumMg', label: 'غنی از پتاسیم' },
+  { id: 'vitaminCMg', label: 'غنی از ویتامین C' },
+  { id: 'vitaminDMcg', label: 'غنی از ویتامین D' },
+  { id: 'sodiumMg', label: 'کم‌سدیم (کم‌نمک)' },
+  { id: 'low_kcal', label: 'کم‌کالری' },
+]
+
 interface FoodDatabaseTabProps {
   foods: FoodItem[]
   prefillNewFoodName: string | null
   prefillNewFoodBarcode?: string | null
+  initialNutrientFilter?: NutrientSmartFilter | null
   onConsumePrefillName: () => void
+  onConsumeNutrientFilter?: () => void
   onAddFood: (food: Omit<FoodItem, 'id'>) => void
   onUpdateFood: (food: FoodItem) => void
   onDeleteFood: (id: string) => void
@@ -35,7 +57,9 @@ export function FoodDatabaseTab({
   foods,
   prefillNewFoodName,
   prefillNewFoodBarcode = null,
+  initialNutrientFilter = null,
   onConsumePrefillName,
+  onConsumeNutrientFilter,
   onAddFood,
   onUpdateFood,
   onDeleteFood,
@@ -44,6 +68,10 @@ export function FoodDatabaseTab({
 }: FoodDatabaseTabProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [nutrientFilter, setNutrientFilter] = useState<NutrientSmartFilter>(
+    () => initialNutrientFilter ?? 'none',
+  )
+  const [prevInitialNutrient, setPrevInitialNutrient] = useState(initialNutrientFilter)
   const [visibleLimit, setVisibleLimit] = useState(60)
   const prefillSig = `${prefillNewFoodName ?? ''}::${prefillNewFoodBarcode ?? ''}`
   const [prevPrefillSig, setPrevPrefillSig] = useState(prefillSig)
@@ -56,6 +84,14 @@ export function FoodDatabaseTab({
     createEmptyForm(prefillNewFoodName ?? '', prefillNewFoodBarcode ?? ''),
   )
   const [formError, setFormError] = useState<string | null>(null)
+
+  if (prevInitialNutrient !== initialNutrientFilter) {
+    setPrevInitialNutrient(initialNutrientFilter)
+    if (initialNutrientFilter) {
+      setNutrientFilter(initialNutrientFilter)
+      setCategoryFilter('all')
+    }
+  }
 
   if (prevPrefillSig !== prefillSig) {
     setPrevPrefillSig(prefillSig)
@@ -73,6 +109,14 @@ export function FoodDatabaseTab({
     setVisibleLimit(60)
   }
 
+  const selectNutrientFilter = (next: NutrientSmartFilter) => {
+    setNutrientFilter(next)
+    setVisibleLimit(60)
+    if (initialNutrientFilter) {
+      onConsumeNutrientFilter?.()
+    }
+  }
+
   const modalContainerRef = useRef<HTMLDivElement | null>(null)
   const foodById = useMemo(() => new Map(foods.map((f) => [f.id, f])), [foods])
 
@@ -88,7 +132,7 @@ export function FoodDatabaseTab({
   useFocusTrap(modalContainerRef, formOpen, closeForm)
 
   const filteredFoods = useMemo(() => {
-    return foods.filter((food) => {
+    const base = foods.filter((food) => {
       if (categoryFilter === 'custom' && !food.isCustom && !food.isOverridden) return false
       if (categoryFilter === 'verified' && !food.verified) return false
       if (
@@ -99,12 +143,48 @@ export function FoodDatabaseTab({
       ) {
         return false
       }
+      if (nutrientFilter === 'high_protein' && food.per100g.protein < 10) return false
+      if (nutrientFilter === 'high_fiber' && (food.per100g.fiber ?? 0) < 3) return false
+      if (nutrientFilter === 'low_kcal' && (food.per100g.kcal > 110 || food.per100g.kcal <= 5)) {
+        return false
+      }
+      if (nutrientFilter === 'sodiumMg') {
+        const na = food.per100g.micronutrients?.sodiumMg ?? 0
+        if (na > 140 || food.per100g.kcal <= 5) return false
+      } else if (
+        nutrientFilter !== 'none' &&
+        nutrientFilter !== 'high_protein' &&
+        nutrientFilter !== 'high_fiber' &&
+        nutrientFilter !== 'low_kcal'
+      ) {
+        const spec = MICRONUTRIENT_SPECS.find((s) => s.key === nutrientFilter)
+        const val = food.per100g.micronutrients?.[nutrientFilter] ?? 0
+        if (!spec || val < spec.dailyRef * 0.08) return false
+      }
+
       if (searchQuery.trim() && food.barcode?.includes(searchQuery.trim())) {
         return true
       }
       return matchesFoodSearch(food, searchQuery)
     })
-  }, [foods, categoryFilter, searchQuery])
+
+    if (nutrientFilter === 'none') return base
+
+    return [...base].sort((a, b) => {
+      if (nutrientFilter === 'high_protein') return b.per100g.protein - a.per100g.protein
+      if (nutrientFilter === 'high_fiber') return (b.per100g.fiber ?? 0) - (a.per100g.fiber ?? 0)
+      if (nutrientFilter === 'low_kcal') return a.per100g.kcal - b.per100g.kcal
+      if (nutrientFilter === 'sodiumMg') {
+        return (
+          (a.per100g.micronutrients?.sodiumMg ?? 0) - (b.per100g.micronutrients?.sodiumMg ?? 0)
+        )
+      }
+      return (
+        (b.per100g.micronutrients?.[nutrientFilter] ?? 0) -
+        (a.per100g.micronutrients?.[nutrientFilter] ?? 0)
+      )
+    })
+  }, [foods, categoryFilter, nutrientFilter, searchQuery])
 
   const displayedFoods = useMemo(
     () => (searchQuery.trim() ? filteredFoods : filteredFoods.slice(0, visibleLimit)),
@@ -153,7 +233,7 @@ export function FoodDatabaseTab({
             </div>
             <p className="text-xs text-zinc-400 mt-0.5 tabular-nums-fa">
               {formatFaNumber(foods.length)} غذا ({formatFaNumber(verifiedCount)} مورد تطبیق‌یافته با
-              منبع مرجع) — پشتیبانی از فیبر، بارکد ۶۲۶ و ویرایش دستور پخت
+              منبع مرجع) — دارای فیلتر هوشمند درشت‌مغذی و ریزمغزی‌ها
             </p>
           </div>
 
@@ -191,11 +271,12 @@ export function FoodDatabaseTab({
             id="food-db-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="جستجوی نام غذا، واحد یا بارکد (مثلاً: باقالی‌قاتق، ساقه‌طلایی، 626...)"
+            placeholder="جستجوی نام غذا، واحد یا بارکد (مثلاً: قورمه‌سبزی، سنگک، ساقه‌طلایی، 626...)"
             className="w-full rounded-xl bg-[#0C0C0D] border border-[#2A2A30] focus:border-emerald-500/70 focus:outline-none pr-10 pl-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
           />
         </div>
 
+        {/* Category Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
@@ -250,6 +331,44 @@ export function FoodDatabaseTab({
             </button>
           ))}
         </div>
+
+        {/* Nutritional Goal & Micronutrient Smart Filter Strip */}
+        <div
+          data-testid="food-nutrient-filter-bar"
+          className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-[#23232A]"
+        >
+          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] text-zinc-400 ml-1">
+            <Sparkles className="w-3 h-3 text-emerald-400" />
+            <span>فیلتر تغذیه‌ای:</span>
+          </span>
+          {NUTRIENT_SMART_FILTERS.map((nf) => {
+            const active = nutrientFilter === nf.id
+            const labelText =
+              nf.id !== 'none' &&
+              nf.id !== 'high_protein' &&
+              nf.id !== 'high_fiber' &&
+              nf.id !== 'low_kcal' &&
+              nf.id !== 'sodiumMg' &&
+              !NUTRIENT_SMART_FILTERS.some((x) => x.id === nf.id)
+                ? nf.id
+                : nf.label
+            return (
+              <button
+                key={nf.id}
+                type="button"
+                data-testid={`nutrient-filter-${nf.id}`}
+                onClick={() => selectNutrientFilter(nf.id)}
+                className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'bg-emerald-500 text-[#051B11] font-bold'
+                    : 'bg-[#0C0C0D] border border-[#282830] text-zinc-300 hover:border-emerald-500/40'
+                }`}
+              >
+                {labelText}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5" data-testid="food-db-list">
@@ -282,8 +401,17 @@ export function FoodDatabaseTab({
       {filteredFoods.length === 0 && (
         <div className="card-surface rounded-2xl p-8 text-center space-y-3">
           <Utensils className="w-7 h-7 text-zinc-400 mx-auto" />
-          <p className="text-sm font-medium text-zinc-300">غذایی با این عبارت پیدا نشد</p>
+          <p className="text-sm font-medium text-zinc-300">غذایی با این فیلتر پیدا نشد</p>
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {nutrientFilter !== 'none' && (
+              <button
+                type="button"
+                onClick={() => selectNutrientFilter('none')}
+                className="rounded-xl bg-[#1E1E22] border border-[#2E2E36] text-zinc-200 font-semibold text-xs px-3.5 py-2"
+              >
+                حذف فیلتر تغذیه‌ای
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

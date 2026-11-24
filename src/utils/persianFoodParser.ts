@@ -8,6 +8,7 @@ export {
   matchesFoodSearch,
   type FoodMatchResult,
 } from './parser/catalogIndex'
+export { expandCompositeDishSegment } from './parser/compositeDishes'
 export {
   applyCookingModifierToPer100g,
   extractCookingModifier,

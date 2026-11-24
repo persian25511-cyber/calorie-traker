@@ -1,25 +1,29 @@
-import { ChevronDown, Info, Sparkles } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Info, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { FoodItem, LoggedFoodEntry } from '../types/nutrition'
-import { computeMicronutrientSummary } from '../utils/micronutrients'
+import type { FoodItem, LoggedFoodEntry, MicronutrientKey } from '../types/nutrition'
+import {
+  computeMicronutrientSummary,
+  type MicronutrientUserProfile,
+} from '../utils/micronutrients'
 import { formatFaNumber } from '../utils/persianFormat'
 import { MicronutrientRadarChart } from './charts/NativeCharts'
 
 interface MicronutrientPanelProps {
   entries: readonly LoggedFoodEntry[]
   foods: readonly FoodItem[]
-  /** Number of active days to divide by (1 for single-day view, activeDaysCount for weekly/monthly average) */
   divisorDays?: number
   periodTitle?: string
   compact?: boolean
+  userProfile?: MicronutrientUserProfile
+  onExploreRichFoods?: (nutrientKey: MicronutrientKey) => void
 }
 
 type GroupFilter = 'all' | 'vitamin' | 'mineral'
 
 /**
  * Interactive Micronutrient Inspector (Vitamins, Minerals & Sodium Ceiling).
- * Combines a 9-axis SVG Radar balance chart with filterable progress rows and
- * click-to-expand top contributing foods from the user's logged meals.
+ * Supports personalized DRI benchmarks (sex/age), Light/Dark theme tokens,
+ * top food contributors, and 1-tap navigation to rich foods in FoodDatabaseTab.
  */
 export function MicronutrientPanel({
   entries,
@@ -27,6 +31,8 @@ export function MicronutrientPanel({
   divisorDays = 1,
   periodTitle = 'امروز',
   compact = false,
+  userProfile,
+  onExploreRichFoods,
 }: MicronutrientPanelProps) {
   const [groupFilter, setGroupFilter] = useState<GroupFilter>('all')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
@@ -38,8 +44,8 @@ export function MicronutrientPanel({
   }, [foods])
 
   const summary = useMemo(
-    () => computeMicronutrientSummary(entries, foodById, divisorDays),
-    [divisorDays, entries, foodById],
+    () => computeMicronutrientSummary(entries, foodById, divisorDays, userProfile),
+    [divisorDays, entries, foodById, userProfile],
   )
 
   const filteredItems = useMemo(() => {
@@ -64,7 +70,6 @@ export function MicronutrientPanel({
 
   return (
     <div className="space-y-3.5" data-testid="micronutrient-panel">
-      {/* Top Overview: Radar Chart + Overall Coverage Score */}
       <div
         className={`rounded-2xl bg-[#131317] border border-[#25252D] p-3.5 ${
           compact ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-12 gap-4 items-center'
@@ -81,14 +86,20 @@ export function MicronutrientPanel({
         <div className={compact ? 'space-y-2.5' : 'md:col-span-7 space-y-3'}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-xs font-bold text-zinc-100">
                   تراز ویتامین‌ها و املاح ({periodTitle})
                 </span>
+                <span
+                  data-testid="micronutrient-profile-badge"
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-[#1E1E22] border border-[#2C2C33] text-zinc-300"
+                >
+                  {summary.profileLabel}
+                </span>
               </div>
               <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
-                روی هر ریزمغزی بزنید تا ببینید کدام غذاهای شما بیشترین سهم را داشته‌اند.
+                روی هر ریزمغزی بزنید تا سهم غذاهای خود و منابع پیشنهادی را ببینید.
               </p>
             </div>
             <span
@@ -99,7 +110,6 @@ export function MicronutrientPanel({
             </span>
           </div>
 
-          {/* Filter Pills */}
           <div className="inline-flex rounded-xl bg-[#0C0C0D] p-1 border border-[#26262E]">
             {(
               [
@@ -127,14 +137,13 @@ export function MicronutrientPanel({
           <div className="flex items-start gap-1.5 text-[10px] text-zinc-400 leading-relaxed">
             <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
             <span>
-              مقادیر مرجع روزانه (DV) بر پایه میانگین بزرگسالان (USDA / WHO) و تقریبی هستند؛ برای
-              سدیم، عدد ۲٬۳۰۰ میلی‌گرم «سقف مجاز روزانه» است.
+              مقادیر مرجع روزانه بر اساس استاندارد بزرگسالان (USDA / IOM) و تقریبی هستند؛ برای سدیم،
+              عدد ۲٬۳۰۰ میلی‌گرم «سقف مجاز روزانه» است.
             </span>
           </div>
         </div>
       </div>
 
-      {/* Micronutrient Progress List */}
       <div className={`grid grid-cols-1 ${compact ? '' : 'sm:grid-cols-2'} gap-2`}>
         {filteredItems.map((item) => {
           const isOpen = expandedKey === item.spec.key
@@ -158,7 +167,7 @@ export function MicronutrientPanel({
             badgeClass = 'bg-amber-500/15 text-amber-300'
           } else if (item.status === 'low') {
             barColor = 'bg-zinc-500'
-            badgeClass = 'bg-zinc-700/40 text-zinc-300'
+            badgeClass = 'bg-zinc-500/20 text-zinc-300'
           }
 
           return (
@@ -169,13 +178,17 @@ export function MicronutrientPanel({
             >
               <button
                 type="button"
-                onClick={() => setExpandedKey((prev) => (prev === item.spec.key ? null : item.spec.key))}
+                onClick={() =>
+                  setExpandedKey((prev) => (prev === item.spec.key ? null : item.spec.key))
+                }
                 className="w-full text-right space-y-1.5"
               >
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="font-semibold text-zinc-100 truncate">{item.spec.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0 ${badgeClass}`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0 ${badgeClass}`}
+                    >
                       {formatFaNumber(item.pctOfRef)}٪
                     </span>
                   </div>
@@ -185,7 +198,7 @@ export function MicronutrientPanel({
                     </span>
                     <span className="text-zinc-500">/</span>
                     <span className="text-zinc-400">
-                      {formatFaNumber(item.spec.dailyRef)} {item.spec.unit}
+                      {formatFaNumber(item.effectiveDailyRef)} {item.spec.unit}
                     </span>
                     <ChevronDown
                       className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${
@@ -206,7 +219,7 @@ export function MicronutrientPanel({
               {isOpen && (
                 <div
                   data-testid={`micro-detail-${item.spec.key}`}
-                  className="mt-2.5 pt-2 border-t border-[#25252E] space-y-1.5 text-[11px] leading-relaxed"
+                  className="mt-2.5 pt-2 border-t border-[#25252E] space-y-2 text-[11px] leading-relaxed"
                 >
                   <div className="flex items-center justify-between text-zinc-300">
                     <span>وضعیت فعلی:</span>
@@ -219,7 +232,7 @@ export function MicronutrientPanel({
                       {item.topContributors.map((c, idx) => (
                         <span key={c.foodName}>
                           {idx > 0 ? ' • ' : ''}
-                          <strong className="text-emerald-300 font-medium">{c.foodName}</strong> (
+                          <strong className="text-emerald-400 font-semibold">{c.foodName}</strong> (
                           {formatFaNumber(c.amount, item.spec.decimals)} {item.spec.unitShort})
                         </span>
                       ))}
@@ -229,11 +242,27 @@ export function MicronutrientPanel({
                   )}
 
                   <div className="text-zinc-400">
-                    <span className="text-sky-300 font-medium">
+                    <span className="text-sky-400 font-medium">
                       {isLimit ? 'نکته تعادل مصرف: ' : 'منابع غذایی غنی: '}
                     </span>
                     <span>{item.spec.richSourcesHint}</span>
                   </div>
+
+                  {onExploreRichFoods && (
+                    <button
+                      type="button"
+                      data-testid={`explore-rich-${item.spec.key}`}
+                      onClick={() => onExploreRichFoods(item.spec.key)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:underline pt-0.5"
+                    >
+                      <span>
+                        {isLimit
+                          ? 'مشاهده غذاهای کم‌سدیم در بانک غذا'
+                          : `مشاهده غذاهای غنی از ${item.spec.shortLabel} در بانک غذا`}
+                      </span>
+                      <ArrowLeft className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               )}
             </div>

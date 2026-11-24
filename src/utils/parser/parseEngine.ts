@@ -6,6 +6,7 @@ import type {
 } from '../../types/nutrition'
 import { scaleMicronutrients } from '../micronutrients'
 import { getCatalogIndex, matchFoodInDatabase, VAV_PLACEHOLDER } from './catalogIndex'
+import { expandCompositeDishSegment } from './compositeDishes'
 import {
   applyCookingModifierToPer100g,
   extractCookingModifier,
@@ -26,7 +27,8 @@ import {
 /**
  * Splits a multi-item Persian meal string into individual item segments,
  * handling و, +, commas, semicolons, newlines, while preserving compound
- * quantities ("یک و نیم", "صد و پنجاه", "بیست و پنج") and dish names containing "و".
+ * quantities ("یک و نیم", "صد و پنجاه", "بیست و پنج"), dish names containing "و",
+ * and expanding compound meal expressions like "چلوکباب کوبیده" or "نون و پنیر و گردو".
  */
 export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[] {
   const lines = rawInput
@@ -53,6 +55,12 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
       `$1$2 ${VAV_PLACEHOLDER} $3`,
     )
 
+    // Protect classic compound breakfast phrase "نان/نون و پنیر و گردو" + trailing کم‌نمک/رژیمی
+    protectedText = protectedText.replace(
+      /(نان|نون)\s+و\s+پنیر\s+و\s+گردو/g,
+      `$1 ${VAV_PLACEHOLDER} پنیر ${VAV_PLACEHOLDER} گردو`,
+    )
+
     if (protectedText.includes(' و ')) {
       for (const rule of vavDishes) {
         if (protectedText.includes(rule.dish)) {
@@ -66,7 +74,9 @@ export function splitMealSegments(rawInput: string, foods: FoodItem[]): string[]
       .map((part) => part.replaceAll(VAV_PLACEHOLDER, 'و').trim())
       .filter(Boolean)
 
-    segments.push(...rawParts)
+    for (const part of rawParts) {
+      segments.push(...expandCompositeDishSegment(part))
+    }
   }
 
   return segments
@@ -248,16 +258,18 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
 
     // 1. Try direct match first so built-in items like "شیر کم‌چرب" or "ماست پرچرب" hit exact catalog records
     let match = matchFoodInDatabase(foodQuery, foods)
-    let activeModifier: CookingModifierSpec | null = null
+    let activeModifiers: CookingModifierSpec[] = []
+    let modifierLabel: string | null = null
 
-    // 2. If not a near-exact catalog hit, check for cooking preparation modifiers ("قورمه‌سبزی کم‌روغن", "نیمرو بدون روغن")
+    // 2. If not a near-exact catalog hit, check for cooking/sodium preparation modifiers ("قورمه‌سبزی کم‌روغن", "دوغ بی‌نمک")
     if (!match || match.confidence < 0.96) {
       const extracted = extractCookingModifier(foodQuery)
-      if (extracted.modifier) {
+      if (extracted.modifiers.length > 0) {
         const strippedMatch = matchFoodInDatabase(extracted.strippedQuery, foods)
         if (strippedMatch && (!match || strippedMatch.confidence > match.confidence)) {
           match = strippedMatch
-          activeModifier = extracted.modifier
+          activeModifiers = extracted.modifiers
+          modifierLabel = extracted.combinedLabel
         }
       }
     }
@@ -267,18 +279,20 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       return
     }
 
-    const effectiveFood: FoodItem = activeModifier
-      ? {
-          ...match.food,
-          per100g: applyCookingModifierToPer100g(match.food.per100g, activeModifier),
-        }
-      : match.food
+    const effectiveFood: FoodItem =
+      activeModifiers.length > 0
+        ? {
+            ...match.food,
+            per100g: applyCookingModifierToPer100g(match.food.per100g, activeModifiers),
+          }
+        : match.food
 
     const resolved = resolveFoodUnit(effectiveFood, requestedUnit)
     const macros = calculateFoodMacros(effectiveFood, quantity, resolved.gramsPerUnit)
+    const modKey = activeModifiers.length > 0 ? activeModifiers.map((m) => m.id).join('-') : 'std'
 
     items.push({
-      id: `${effectiveFood.id}-${index}-${quantity}-${resolved.unit}-${activeModifier?.id ?? 'std'}`,
+      id: `${effectiveFood.id}-${index}-${quantity}-${resolved.unit}-${modKey}`,
       food: effectiveFood,
       quantity,
       unit: resolved.unit,
@@ -292,7 +306,7 @@ export function parsePersianFoodInput(input: string, foods: FoodItem[]): ParseRe
       micronutrients: macros.micronutrients,
       rawSegment: segment,
       confidence: match.confidence,
-      ...(activeModifier ? { modifierLabel: activeModifier.label } : {}),
+      ...(modifierLabel ? { modifierLabel } : {}),
       isAmbiguous: match.isAmbiguous,
       alternatives: match.alternatives,
     })

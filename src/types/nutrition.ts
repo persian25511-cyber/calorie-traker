@@ -8,7 +8,7 @@ export type FoodCategory =
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
-export type MealScheduleMode = 'standard' | 'ramadan'
+export type MealScheduleMode = 'standard' | 'ramadan' | 'fasting_16_8'
 
 export type AppTab = 'home' | 'trends' | 'foods' | 'settings'
 
@@ -319,6 +319,11 @@ export interface UserGoals {
   fiberGrams?: number
   waterGoalGlasses: number
   scheduleMode?: MealScheduleMode
+  /** Optional biological profile for personalized micronutrient RDAs (e.g. 8mg vs 18mg Iron) */
+  sex?: 'male' | 'female'
+  ageYears?: number
+  /** Optional target body weight (kg) displayed as reference line on WeightLineChart */
+  targetWeightKg?: number
 }
 
 export interface AppBackupData {
@@ -349,10 +354,19 @@ export const RAMADAN_MEAL_TYPE_LABELS: Record<MealType, string> = {
   snack: 'میان‌وعده شبانه',
 }
 
+export const FASTING_16_8_MEAL_TYPE_LABELS: Record<MealType, string> = {
+  breakfast: 'وعده اول (شروع پنجره)',
+  lunch: 'وعده اصلی',
+  dinner: 'وعده پایانی پنجره',
+  snack: 'میان‌وعده در پنجره',
+}
+
 export function getMealTypeLabels(
   mode: MealScheduleMode = 'standard',
 ): Record<MealType, string> {
-  return mode === 'ramadan' ? RAMADAN_MEAL_TYPE_LABELS : MEAL_TYPE_LABELS
+  if (mode === 'ramadan') return RAMADAN_MEAL_TYPE_LABELS
+  if (mode === 'fasting_16_8') return FASTING_16_8_MEAL_TYPE_LABELS
+  return MEAL_TYPE_LABELS
 }
 
 /** Suggested share of daily kcal per meal slot for gentle budgeting hints. */
@@ -368,6 +382,12 @@ export const MEAL_BUDGET_RATIOS: Record<MealScheduleMode, Record<MealType, numbe
     lunch: 0.35, // افطاری
     dinner: 0.2, // شام سبک
     snack: 0.1, // میان‌وعده شبانه
+  },
+  fasting_16_8: {
+    breakfast: 0.3, // وعده اول
+    lunch: 0.4, // وعده اصلی
+    dinner: 0.2, // وعده پایانی
+    snack: 0.1, // میان‌وعده
   },
 }
 

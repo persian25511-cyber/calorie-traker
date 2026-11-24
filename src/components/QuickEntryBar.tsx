@@ -55,6 +55,7 @@ interface QuickEntryBarProps {
   onDeleteTemplate: (templateId: string) => void
   onRequestAddCustomFood: (prefillName: string) => void
   onRequestAddBarcodeFood: (barcode: string) => void
+  onSaveFetchedBarcodeFood?: (food: Omit<FoodItem, 'id'>) => FoodItem
 }
 
 interface ChipOverride {
@@ -84,6 +85,7 @@ export function QuickEntryBar({
   onDeleteTemplate,
   onRequestAddCustomFood,
   onRequestAddBarcodeFood,
+  onSaveFetchedBarcodeFood,
 }: QuickEntryBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [overridesByInput, setOverridesByInput] = useState<{
@@ -343,7 +345,7 @@ export function QuickEntryBar({
           <div>
             <h2 className="text-sm font-semibold text-zinc-100 leading-tight">ثبت سریع غذا</h2>
             <p className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-              به زبان روزمره بنویسید (پشتیبانی از «کم‌روغن»، «با کره» و «ایرفرایر»)
+              به زبان روزمره بنویسید (پشتیبانی از «چلوکباب»، «کم‌روغن»، «کم‌نمک» و «ایرفرایر»)
             </p>
           </div>
         </div>
@@ -353,6 +355,7 @@ export function QuickEntryBar({
             foods={foods}
             onAppendPhrase={handleAppendPhrase}
             onRequestAddBarcodeFood={onRequestAddBarcodeFood}
+            onSaveFetchedBarcodeFood={onSaveFetchedBarcodeFood}
           />
 
           <div

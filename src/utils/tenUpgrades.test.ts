@@ -57,7 +57,11 @@ describe('v1.2.0 — 10 Quality & UX Upgrades Suite', () => {
     })
 
     it('keeps lean modifier safe on ultra-low-fat foods and computes fiber accurately', () => {
-      expect(extractCookingModifier('')).toEqual({ strippedQuery: '', modifier: null })
+      expect(extractCookingModifier('')).toMatchObject({
+        strippedQuery: '',
+        modifier: null,
+        modifiers: [],
+      })
       const extracted = extractCookingModifier('سیب‌زمینی در ایرفرایر')
       expect(extracted.modifier?.id).toBe('lean')
       expect(extracted.strippedQuery).toBe('سیب زمینی')
